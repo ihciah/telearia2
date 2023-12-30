@@ -1,0 +1,14 @@
+version: '2.4'
+services:
+  telearia2:
+    image: ghcr.io/ihciah/telearia2:latest
+    container_name: telearia2
+    restart: always
+    network_mode: "host"
+    volumes:
+      - type: "bind"
+        source: "./config.toml"
+        target: "/config.toml"
+        read_only: true
+    environment:
+      - CONFIG_PATH=/config.toml

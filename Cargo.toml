@@ -1,0 +1,43 @@
+[package]
+authors = ["ihciah <ihciah@gmail.com>"]
+description = "Manage aria2 with telegram bot"
+edition = "2021"
+keywords = ["aria2c", "websocket", "telegram", "bot"]
+license = "MIT/Apache-2.0"
+name = "telearia2"
+readme = "README.md"
+repository = "https://github.com/ihciah/telearia2"
+version = "0.1.0"
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+hashlink = "0.9"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["fast-rng", "v4"] }
+regex = { version = "1", features = ["std"] }
+parking_lot = { version = "0.12", features = ["hardware-lock-elision"] }
+clap = { version = "4", features = ["derive"] }
+
+tokio = { version = "1", features = [
+    "sync",
+    "time",
+    "macros",
+    "rt-multi-thread",
+] }
+
+smallvec = { version = "1", features = ["serde"] }
+small-map = { version = "0.1", features = ["fxhash", "serde"] }
+smol_str = { version = "0.2", features = ["serde"] }
+
+teloxide = { version = "0.12", features = ["macros"] }
+dptree = "0.3.0"
+reqwest = { version = "0.11" }
+aria2-rs = { version = "0.2.1" }
+
+[profile.release]
+lto = true
+opt-level = 3
