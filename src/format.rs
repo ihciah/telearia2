@@ -67,8 +67,26 @@ impl MessageFmt for Status {
             };
             writeln!(f, "Status: {status}")?;
 
+            // Dir
             let dir = self.dir.as_deref().unwrap_or("Unknown");
             writeln!(f, "Dir: {dir}")?;
+
+            if self.status == Some(TaskStatus::Active) {
+                // Seeder count
+                if let (Some(seed_cnt), Some(conn_cnt)) = (self.num_seeders, self.connections) {
+                    writeln!(f, "Conn/Seeder: {conn_cnt}/{seed_cnt}",)?;
+                }
+
+                // Speed
+                if let (Some(ul_speed), Some(dl_speed)) = (self.upload_speed, self.download_speed) {
+                    writeln!(
+                        f,
+                        "Speed: ⬆ {ul_speed}/s | ⬇ {dl_speed}/s",
+                        ul_speed = SizeFormatter(ul_speed),
+                        dl_speed = SizeFormatter(dl_speed),
+                    )?;
+                }
+            }
 
             // Progress
             writeln!(
