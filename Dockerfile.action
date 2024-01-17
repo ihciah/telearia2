@@ -1,0 +1,16 @@
+FROM alpine:latest as builder
+
+ARG DOWNLOAD_BASE
+RUN ARCH=$(uname -m | sed -e "s/armv7l/armv7-unknown-linux-musleabihf/g" | sed -e "s/aarch64/aarch64-unknown-linux-musl/g" | sed -e "s/x86_64/x86_64-unknown-linux-musl/g") && \
+    apk add --no-cache curl && \
+    curl -L "${DOWNLOAD_BASE}/telearia2-${ARCH}" -o /telearia2 && \
+    chmod +x /telearia2
+
+FROM alpine:latest
+
+# By default telearia2 will use `config.toml` as config path.
+ENV CONFIG_PATH=""
+
+RUN apk add --no-cache ca-certificates
+COPY --from=builder /telearia2 /usr/local/bin/telearia2
+ENTRYPOINT ["/usr/local/bin/telearia2"]
