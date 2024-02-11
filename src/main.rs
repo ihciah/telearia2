@@ -177,7 +177,9 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
     }
 
     // extract all magnet links with regexp to Vec<String>.
-    let magnet_re = regex::Regex::new(r"magnet:\?xt=urn:btih:([0-9a-fA-F]{40})")?;
+    // TODO: extract and pass more query parameters.
+    let magnet_re =
+        regex::Regex::new(r"magnet:\?xt=urn:btih:((?:[0-9a-fA-F]{40})|(?:[a-zA-Z2-7]{32}))")?;
     let mut magnets: SmallVec<String> = magnet_re
         .captures_iter(msg.text().unwrap_or(""))
         .map(|cap| format!("magnet:?xt=urn:btih:{}", &cap[1].to_ascii_lowercase()))
@@ -186,8 +188,16 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
     magnets.dedup();
 
     // if message length is 40 and all chars are hex, it may be a magnet link.
+    // base32 format is also considered as valid magnet link.
     if let Some(text) = msg.text() {
         if text.len() == 40 && text.chars().all(|c| c.is_ascii_hexdigit()) {
+            magnets.push(format!("magnet:?xt=urn:btih:{}", text));
+        }
+        if text.len() == 32
+            && text
+                .chars()
+                .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '2'..='7'))
+        {
             magnets.push(format!("magnet:?xt=urn:btih:{}", text));
         }
     }
