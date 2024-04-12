@@ -172,15 +172,11 @@ impl TaskExt for Status {
     }
 
     fn progress(&self) -> f64 {
-        if let Some(total_length) = self.total_length {
-            if total_length == 0 {
-                1.0
-            } else {
-                let completed_length = self.completed_length.unwrap_or(0);
-                completed_length as f64 / total_length as f64
+        match self.total_length{
+            Some(total) if total > 0 => {
+                self.completed_length.unwrap_or(0) as f64 / total as f64
             }
-        } else {
-            0.0
+            _ => 0.0
         }
     }
 
