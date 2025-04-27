@@ -137,6 +137,8 @@ mod tests {
             token: "token:ARIA2@MARESERENITATIS".to_string(),
             channel_buffer_size: None,
             interval_secs: None,
+            admins_override: None,
+            download_override: None,
         };
         let cli = Aria2Client::connect(&cfg).await.unwrap();
         let tasks = cli.get_tasks().await.unwrap();

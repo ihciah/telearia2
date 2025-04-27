@@ -1,0 +1,36 @@
+[aria2."aws"]
+rpc_url = "wss://aws.example.org/jsonrpc"
+token = "token:PASSWORD"
+
+[aria2."azure"]
+rpc_url = "wss://azure.example.org/jsonrpc"
+token = "token:PASSWORD"
+admins_override = []
+
+    [aria2."azure".download_override]
+    magnet_dirs = []
+    torrent_dirs = []
+    link_dirs = []
+    default_dir = "/another/mount/downloads/"
+
+[telegram]
+token = "0000000000:YOURTELEGRAMBOTTOKEN"
+admins = []
+
+[download]
+magnet_dirs = [
+    { name = "Bangumi", path = "/data/Bangumi" },
+    { name = "Movies", path = "/data/Movies" },
+    { name = "TVSeries", path = "/data/TVSeries" },
+]
+torrent_dirs = [
+    { name = "Bangumi", path = "/data/Bangumi" },
+    { name = "Movies", path = "/data/Movies" },
+    { name = "TVSeries", path = "/data/TVSeries" },
+]
+link_dirs = [
+    { name = "Bangumi", path = "/data/Bangumi" },
+    { name = "Movies", path = "/data/Movies" },
+    { name = "TVSeries", path = "/data/TVSeries" },
+]
+default_dir = "/data/"

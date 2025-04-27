@@ -1,9 +1,9 @@
-FROM rust:1.75-alpine as builder
+FROM rust:1.86-alpine as builder
 WORKDIR /usr/src/telearia2
 RUN apk add --no-cache musl-dev libressl-dev
 
 COPY . .
-RUN CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse RUSTFLAGS="" cargo build --bin telearia2 --release
+RUN cargo build --bin telearia2 --release
 
 FROM alpine:latest
 

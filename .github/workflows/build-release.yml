@@ -19,8 +19,6 @@ jobs:
         target:
           - x86_64-unknown-linux-musl
           - aarch64-unknown-linux-musl
-          - armv7-unknown-linux-musleabihf
-          - arm-unknown-linux-musleabi
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust
@@ -62,7 +60,7 @@ jobs:
         with:
           file: Dockerfile.action
           build-args: "DOWNLOAD_BASE=https://github.com/${{ github.repository }}/releases/download/${{ env.VERSIONED_TAG }}"
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSIONED_TAG }}

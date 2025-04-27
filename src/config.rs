@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+
+use crate::utils::SingleMultiMap;
 
 // max torrent size is 1M
 pub const MAX_TORRENT_SIZE: u32 = 1024 * 1024;
@@ -17,9 +19,11 @@ impl<T: Clone> Param<T> for T {
     }
 }
 
+pub type Aria2ConfigGroup = SingleMultiMap<Aria2Config>;
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct Config {
-    pub aria2: Aria2Config,
+    pub aria2: Aria2ConfigGroup,
     pub telegram: TelegramConfig,
     pub download: DownloadConfig,
 }
@@ -32,12 +36,14 @@ impl Config {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Aria2Config {
     pub rpc_url: String,
     pub token: String,
     pub channel_buffer_size: Option<usize>,
     pub interval_secs: Option<u64>,
+    pub admins_override: Option<Vec<i64>>,
+    pub download_override: Option<DownloadConfig>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -64,8 +70,8 @@ pub struct DirConfig {
     pub path: String,
 }
 
-impl Param<Aria2Config> for Config {
-    fn param(&self) -> Aria2Config {
+impl Param<Aria2ConfigGroup> for Config {
+    fn param(&self) -> Aria2ConfigGroup {
         self.aria2.clone()
     }
 }

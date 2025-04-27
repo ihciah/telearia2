@@ -172,11 +172,9 @@ impl TaskExt for Status {
     }
 
     fn progress(&self) -> f64 {
-        match self.total_length{
-            Some(total) if total > 0 => {
-                self.completed_length.unwrap_or(0) as f64 / total as f64
-            }
-            _ => 0.0
+        match self.total_length {
+            Some(total) if total > 0 => self.completed_length.unwrap_or(0) as f64 / total as f64,
+            _ => 0.0,
         }
     }
 
@@ -215,6 +213,20 @@ pub fn make_tasks_keyboard(tasks: Vec<(String, String)>) -> InlineKeyboardMarkup
     let keyboard: Vec<_> = tasks
         .into_iter()
         .map(|(desc, id)| vec![InlineKeyboardButton::callback(desc, format!("task|{id}"))])
+        .collect();
+    InlineKeyboardMarkup::new(keyboard)
+}
+
+pub fn make_switch_server_keyboard<'a>(
+    servers: impl Iterator<Item = &'a str>,
+) -> InlineKeyboardMarkup {
+    let keyboard: Vec<_> = servers
+        .map(|server| {
+            vec![InlineKeyboardButton::callback(
+                server,
+                format!("switch|{server}"),
+            )]
+        })
         .collect();
     InlineKeyboardMarkup::new(keyboard)
 }
@@ -265,4 +277,161 @@ where
         formatter(default_dir),
     )]);
     InlineKeyboardMarkup::new(keyboard)
+}
+
+pub mod msg {
+    use std::fmt::Display;
+    pub struct MsgStart;
+
+    impl From<MsgStart> for String {
+        fn from(_: MsgStart) -> Self {
+            "Welcome to ihciah's aria2 bot!\nUse /help to get help.\nUse /task to get task list.\nTo download, send magnet link, torrent file or http(s) link to me!\n\nTelearia2 is an open source project(https://github.com/ihciah/telearia2).".into()
+        }
+    }
+
+    pub struct MsgTask;
+
+    impl From<MsgTask> for String {
+        fn from(_: MsgTask) -> Self {
+            "Tasks:\nThis page will be updated automatically within 3mins.\nUse /task to refresh again.".into()
+        }
+    }
+
+    pub enum MsgSwitchResult<'a> {
+        Success { server_name: &'a str },
+        NoNeed,
+        Failure,
+    }
+
+    impl From<MsgSwitchResult<'_>> for String {
+        fn from(msg: MsgSwitchResult<'_>) -> Self {
+            match msg {
+                MsgSwitchResult::Success { server_name } => {
+                    format!("Server switched to {server_name}.")
+                }
+                MsgSwitchResult::NoNeed => "Only one server is accessable.".into(),
+                MsgSwitchResult::Failure => {
+                    "Failed to switch server. The server may not exist, or you may not have permission to access it.".into()
+                }
+            }
+        }
+    }
+
+    pub struct MsgSwitchPrompt<'a> {
+        pub current_server_name: Option<&'a str>,
+    }
+
+    impl From<MsgSwitchPrompt<'_>> for String {
+        fn from(prompt: MsgSwitchPrompt<'_>) -> Self {
+            match prompt.current_server_name {
+                Some(name) => format!("Current server: {name}. Please select server:"),
+                None => "No server selected. Please select server:".into(),
+            }
+        }
+    }
+
+    pub struct MsgUnauthorized {
+        pub user_id: i64,
+    }
+
+    impl From<MsgUnauthorized> for String {
+        fn from(cmd: MsgUnauthorized) -> Self {
+            format!(
+                "User or group({}) are not authorized to use this command!",
+                cmd.user_id
+            )
+        }
+    }
+
+    pub enum MsgCatchError<E> {
+        InvalidCommand,
+        Error { error: E },
+    }
+
+    impl<E: Display> From<MsgCatchError<E>> for String {
+        fn from(res: MsgCatchError<E>) -> Self {
+            match res {
+                MsgCatchError::InvalidCommand => "Invalid command or format!".into(),
+                MsgCatchError::Error { error } => format!("Error: {error}"),
+            }
+        }
+    }
+
+    pub struct MsgDownloadMagnetConfirm<'a, T> {
+        pub magnets: &'a [T],
+    }
+
+    impl<'a, T: Display> From<MsgDownloadMagnetConfirm<'a, T>> for String {
+        fn from(msg: MsgDownloadMagnetConfirm<'a, T>) -> Self {
+            if msg.magnets.len() == 1 {
+                format!("Confirm download {}?", msg.magnets[0])
+            } else {
+                format!("Confirm download {} magnets?", msg.magnets.len())
+            }
+        }
+    }
+
+    pub struct MsgDownloadLinkConfirm<'a, T> {
+        pub links: &'a [T],
+    }
+
+    impl<'a, T: Display> From<MsgDownloadLinkConfirm<'a, T>> for String {
+        fn from(msg: MsgDownloadLinkConfirm<'a, T>) -> Self {
+            if msg.links.len() == 1 {
+                format!("Confirm download {}?", msg.links[0])
+            } else {
+                format!("Confirm download {} links?", msg.links.len())
+            }
+        }
+    }
+
+    pub struct MsgDownloadTorrentConfirm<'a> {
+        pub document: &'a teloxide::types::Document,
+    }
+
+    impl<'a> From<MsgDownloadTorrentConfirm<'a>> for String {
+        fn from(msg: MsgDownloadTorrentConfirm<'a>) -> Self {
+            match &msg.document.file_name {
+                Some(name) => format!("Confirm download torrent file {name}?"),
+                None => format!("Confirm download torrent file_{}?", msg.document.file.id),
+            }
+        }
+    }
+
+    pub struct MsgTaskNotFound<'a> {
+        pub gid: &'a str,
+    }
+
+    impl<'a> From<MsgTaskNotFound<'a>> for String {
+        fn from(msg: MsgTaskNotFound<'a>) -> Self {
+            format!("Task {} not found!", msg.gid)
+        }
+    }
+
+    pub enum MsgTaskActionResult<'a, E, T = ()> {
+        Pause(&'a str, &'a Result<T, E>),
+        Resume(&'a str, &'a Result<T, E>),
+        Remove(&'a str, &'a Result<T, E>),
+        Purge(&'a Result<T, E>),
+    }
+
+    impl<'a, E: Display> From<MsgTaskActionResult<'a, E>> for String {
+        fn from(res: MsgTaskActionResult<'a, E>) -> Self {
+            let (action, gid, result) = match res {
+                MsgTaskActionResult::Purge(result) => {
+                    return match result {
+                        Ok(_) => "Purge downloaded results successfully!".into(),
+                        Err(error) => format!("Purge downloaded results failed: {error}"),
+                    }
+                }
+                MsgTaskActionResult::Pause(gid, result) => ("Pause", gid, result),
+                MsgTaskActionResult::Resume(gid, result) => ("Resume", gid, result),
+                MsgTaskActionResult::Remove(gid, result) => ("Remove", gid, result),
+            };
+            match result {
+                Ok(_) => format!("{action} task {gid} successfully!"),
+                Err(error) => format!("{action} task {gid} failed: {error}"),
+            }
+        }
+    }
 }

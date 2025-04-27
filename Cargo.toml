@@ -7,7 +7,7 @@ license = "MIT/Apache-2.0"
 name = "telearia2"
 readme = "README.md"
 repository = "https://github.com/ihciah/telearia2"
-version = "0.1.0"
+version = "0.1.1"
 
 [dependencies]
 anyhow = "1"
@@ -31,12 +31,12 @@ tokio = { version = "1", features = [
 
 smallvec = { version = "1", features = ["serde"] }
 small-map = { version = "0.1", features = ["fxhash", "serde"] }
-smol_str = { version = "0.2", features = ["serde"] }
+smol_str = { version = "0.3", features = ["serde"] }
 
 teloxide = { version = "0.12", features = ["macros"] }
 dptree = "0.3.0"
-reqwest = { version = "0.11", features = ["native-tls-vendored"] }
-aria2-rs = { version = "0.2.1" }
+reqwest = { version = "0.12", features = ["native-tls-vendored"] }
+aria2-rs = { version = "0.3.1" }
 
 [profile.release]
 lto = true

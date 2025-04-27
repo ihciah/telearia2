@@ -8,16 +8,25 @@ use aria2_rs::{status::TaskStatus, SmallVec};
 use bytes::Bytes;
 use clap::Parser;
 use config::{Config, MAX_TORRENT_SIZE};
-use format::{make_download_confirm_keyboard, make_single_task_keyboard, make_tasks_keyboard};
+use format::{
+    make_download_confirm_keyboard, make_single_task_keyboard, make_switch_server_keyboard,
+    make_tasks_keyboard,
+    msg::{
+        MsgCatchError, MsgDownloadLinkConfirm, MsgDownloadMagnetConfirm, MsgDownloadTorrentConfirm,
+        MsgStart, MsgSwitchPrompt, MsgSwitchResult, MsgTask, MsgTaskActionResult, MsgTaskNotFound,
+        MsgUnauthorized,
+    },
+};
 use smol_str::SmolStr;
-use state::State;
+use state::{State, TasksCache};
 use std::{error::Error, str::FromStr, sync::Arc};
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
-    types::{Me, ParseMode},
+    types::{Me, MessageId, ParseMode},
     utils::command::BotCommands,
 };
+use utils::SendMessageSettersExt;
 
 /// These commands are supported:
 #[derive(BotCommands)]
@@ -29,6 +38,8 @@ enum Command {
     Start,
     /// Id
     Id,
+    /// Switch server
+    Switch,
     /// Task list
     Task,
     /// Purge all downloaded results
@@ -85,96 +96,90 @@ async fn message_handler(
     me: Me,
     state: Arc<State>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(text) = msg.text() {
-        let parsed = BotCommands::parse(text, me.username());
-        // Auth check for task and purge command.
-        if matches!(parsed, Ok(Command::Task) | Ok(Command::Purge)) && !state.auth(msg.chat.id.0) {
-            bot.send_message(
-                msg.chat.id,
-                format!(
-                    "User or group({}) are not authorized to use this command!",
-                    msg.chat.id.0
-                ),
-            )
-            .await?;
-            return Ok(());
-        }
-        // If parse command successfully, handle the command and return.
-        if let Ok(cmd) = parsed {
-            match cmd {
-                Command::Help => {
-                    // Just send the description of all commands.
-                    bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                        .await?;
-                }
-                Command::Start => {
-                    bot.send_message(msg.chat.id, "Welcome to ihciah's aria2 bot!\nUse /help to get help.\nUse /task to get task list.\nTo download, send magnet link, torrent file or http(s) link to me!")
-                        .await?;
-                }
-                Command::Id => {
-                    bot.send_message(msg.chat.id, format!("`{}`", msg.chat.id))
-                        .parse_mode(ParseMode::MarkdownV2)
-                        .await?;
-                }
-                Command::Task => {
-                    state.refresh().await;
-                    let tasks = state.tasks_cache.read().fmt_tasks();
-                    let keyboard = make_tasks_keyboard(tasks);
-                    let msg = bot.send_message(msg.chat.id, "Tasks:\nThis page will be updated automatically within 3mins.\nUse /task to refresh again.")
-                        .reply_markup(keyboard)
-                        .await?;
-                    state
-                        .tasks_cache
-                        .write()
-                        .add_list_subscriber(msg.chat.id, msg.id);
-                }
-                Command::Purge => match state.client.purge_downloaded().await {
-                    Ok(()) => {
-                        bot.send_message(msg.chat.id, "Purge downloaded results successfully!")
-                            .reply_to_message_id(msg.id)
-                            .await?;
-                    }
-                    Err(e) => {
-                        bot.send_message(
-                            msg.chat.id,
-                            format!("Purge downloaded results failed: {e}"),
-                        )
-                        .reply_to_message_id(msg.id)
-                        .await?;
-                    }
-                },
+    // Try to parse the message as a command.
+    if let Some(cmd) = msg
+        .text()
+        .and_then(|text| BotCommands::parse(text, me.username()).ok())
+    {
+        match cmd {
+            Command::Help => {
+                // Just send the description of all commands.
+                bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                    .reply_to_message_id(msg.id)
+                    .await?;
+                return Ok(());
             }
-            return Ok(());
+            Command::Start => {
+                bot.send_message(msg.chat.id, MsgStart).await?;
+                return Ok(());
+            }
+            Command::Id => {
+                bot.send_message(msg.chat.id, format!("`{}`", msg.chat.id))
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .reply_to_message_id(msg.id)
+                    .await?;
+                return Ok(());
+            }
+            Command::Switch => {
+                select_or_unauthorized(&bot, msg.chat.id, Some(msg.id), &state).await?;
+                return Ok(());
+            }
+            _ => (),
         }
+
+        let Some(server_selected) = state.selected(msg.chat.id.0) else {
+            select_or_unauthorized(&bot, msg.chat.id, Some(msg.id), &state).await?;
+            return Ok(());
+        };
+        // Auth checked for Task and Purge command.
+        match cmd {
+            Command::Task => {
+                TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
+                let tasks = server_selected.tasks_cache.read().fmt_tasks();
+                let keyboard = make_tasks_keyboard(tasks);
+                let msg = bot
+                    .send_message(msg.chat.id, MsgTask)
+                    .reply_markup(keyboard)
+                    .await?;
+                server_selected
+                    .tasks_cache
+                    .write()
+                    .add_list_subscriber(msg.chat.id, msg.id);
+            }
+            Command::Purge => {
+                bot.send_message(
+                    msg.chat.id,
+                    MsgTaskActionResult::Purge(&server_selected.client.purge_downloaded().await),
+                )
+                .reply_to_message_id(msg.id)
+                .await?;
+            }
+            _ => unreachable!(),
+        }
+        return Ok(());
     }
 
     // handle other messages
-    match handle_message(&bot, &msg, state).await {
-        Ok(Some(_)) => (),
-        Ok(None) => {
-            bot.send_message(msg.chat.id, "Command not found!").await?;
-        }
-        Err(e) => {
-            bot.send_message(msg.chat.id, format!("Error: {e}")).await?;
-        }
-    }
+    let text = match handle_message(&bot, &msg, state).await {
+        Ok(ControlFlow::Break(_)) => return Ok(()),
+        Ok(ControlFlow::Continue(_)) => MsgCatchError::InvalidCommand,
+        Err(e) => MsgCatchError::Error { error: e },
+    };
+    bot.send_message(msg.chat.id, text).await?;
 
     Ok(())
 }
 
 // Handle message with magnet link or torrent file.
-async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::Result<Option<()>> {
-    if !state.auth(msg.chat.id.0) {
-        bot.send_message(
-            msg.chat.id,
-            format!(
-                "User or group({}) are not authorized to download.",
-                msg.chat.id.0
-            ),
-        )
-        .await?;
-        return Ok(Some(()));
-    }
+async fn handle_message(
+    bot: &Bot,
+    msg: &Message,
+    state: Arc<State>,
+) -> anyhow::Result<ControlFlow<()>> {
+    let Some(server_selected) = state.selected(msg.chat.id.0) else {
+        select_or_unauthorized(bot, msg.chat.id, Some(msg.id), &state).await?;
+        return Ok(ControlFlow::Break(()));
+    };
 
     // extract all magnet links with regexp to Vec<String>.
     // TODO: extract and pass more query parameters.
@@ -204,14 +209,10 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
 
     if !magnets.is_empty() {
         let uuid = uuid::Uuid::new_v4().to_string();
-        let text = if magnets.len() == 1 {
-            format!("Confirm download {}?", magnets[0])
-        } else {
-            format!("Confirm download {} magnets?", magnets.len())
-        };
+        let text: String = MsgDownloadMagnetConfirm { magnets: &magnets }.into();
         let keyboard = make_download_confirm_keyboard(
-            &state.download_config.magnet_dirs,
-            &state.download_config.default_dir,
+            &server_selected.download_config.magnet_dirs,
+            &server_selected.download_config.default_dir,
             |dir| format!("uri|{dir}|{uuid}"),
         );
         state.uri_cache.lock().insert(uuid, magnets);
@@ -219,7 +220,7 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
             .await?;
-        return Ok(Some(()));
+        return Ok(ControlFlow::Break(()));
     }
 
     // extract all http or https links(not magnet) with regexp to Vec<String>.
@@ -232,14 +233,10 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
     http_links.dedup();
     if !http_links.is_empty() {
         let uuid = uuid::Uuid::new_v4().to_string();
-        let text = if http_links.len() == 1 {
-            format!("Confirm download {}?", http_links[0])
-        } else {
-            format!("Confirm download {} links?", http_links.len())
-        };
+        let text: String = MsgDownloadLinkConfirm { links: &http_links }.into();
         let keyboard = make_download_confirm_keyboard(
-            &state.download_config.link_dirs,
-            &state.download_config.default_dir,
+            &server_selected.download_config.link_dirs,
+            &server_selected.download_config.default_dir,
             |dir| format!("uri|{dir}|{uuid}"),
         );
         state.uri_cache.lock().insert(uuid, http_links);
@@ -247,7 +244,7 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
             .await?;
-        return Ok(Some(()));
+        return Ok(ControlFlow::Break(()));
     }
 
     // extract all torrent files.
@@ -255,19 +252,13 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
         if document.file.size > MAX_TORRENT_SIZE {
             bot.send_message(msg.chat.id, "File size too large!")
                 .await?;
-            return Ok(Some(()));
+            return Ok(ControlFlow::Break(()));
         }
         let uuid = uuid::Uuid::new_v4().to_string();
-        let text = format!(
-            "Confirm download torrent {}?",
-            document
-                .file_name
-                .clone()
-                .unwrap_or_else(|| format!("file_{}", document.file.id))
-        );
+        let text = MsgDownloadTorrentConfirm { document };
         let keyboard = make_download_confirm_keyboard(
-            &state.download_config.torrent_dirs,
-            &state.download_config.default_dir,
+            &server_selected.download_config.torrent_dirs,
+            &server_selected.download_config.default_dir,
             |dir| format!("t|{dir}|{uuid}"),
         );
         state
@@ -278,10 +269,10 @@ async fn handle_message(bot: &Bot, msg: &Message, state: Arc<State>) -> anyhow::
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
             .await?;
-        return Ok(Some(()));
+        return Ok(ControlFlow::Break(()));
     }
 
-    Ok(None)
+    Ok(ControlFlow::Continue(()))
 }
 
 async fn callback_handler(
@@ -292,31 +283,35 @@ async fn callback_handler(
     let (Some(user_data), Some(Message { id, chat, .. })) = (q.data, q.message) else {
         return Ok(());
     };
-    if !state.auth(chat.id.0) {
-        bot.send_message(
-            chat.id,
-            format!(
-                "User or group({}) are not authorized to use this command!",
-                chat.id.0
-            ),
-        )
-        .await?;
-        return Ok(());
-    }
 
     let user_data = UserData::from_str(&user_data)?;
+    if let UserData::SwitchServer(server_name) = user_data {
+        let msg = match state.try_select(chat.id.0, &server_name) {
+            state::SelectResult::Success => MsgSwitchResult::Success {
+                server_name: &server_name,
+            },
+            state::SelectResult::NoNeed => MsgSwitchResult::NoNeed,
+            state::SelectResult::Failure => MsgSwitchResult::Failure,
+        };
+        bot.edit_message_text(chat.id, id, msg).await?;
+        return Ok(());
+    };
+
+    let Some(server_selected) = state.selected(chat.id.0) else {
+        select_or_unauthorized(&bot, chat.id, None, &state).await?;
+        return Ok(());
+    };
+
     match user_data {
         UserData::Task(gid) => {
             let Some((task_desc, task_status)) =
-                state
-                    .tasks_cache
-                    .read()
-                    .fmt_task(&gid)
-                    .map(|(task_desc, task_status)| {
+                server_selected.tasks_cache.read().fmt_task(&gid).map(
+                    |(task_desc, task_status)| {
                         (task_desc, task_status.status.unwrap_or(TaskStatus::Removed))
-                    })
+                    },
+                )
             else {
-                bot.send_message(chat.id, format!("Task {gid} not found!"))
+                bot.send_message(chat.id, MsgTaskNotFound { gid: &gid })
                     .await?;
                 return Ok(());
             };
@@ -327,37 +322,25 @@ async fn callback_handler(
                 .reply_markup(keyboard)
                 .reply_to_message_id(id)
                 .await?;
-            state
+            server_selected
                 .tasks_cache
                 .write()
                 .add_task_subscriber(gid, chat.id, msg.id);
         }
         UserData::PauseTask(gid) => {
-            let res = state.client.pause(&gid).await;
-            bot.edit_message_text(
-                chat.id,
-                id,
-                format!("Pause task {gid} {}.", fmt_result(&res)),
-            )
-            .await?;
+            let res = server_selected.client.pause(&gid).await;
+            bot.edit_message_text(chat.id, id, MsgTaskActionResult::Pause(&gid, &res))
+                .await?;
         }
         UserData::ResumeTask(gid) => {
-            let res = state.client.resume(&gid).await;
-            bot.edit_message_text(
-                chat.id,
-                id,
-                format!("Resume task {gid} {}.", fmt_result(&res)),
-            )
-            .await?;
+            let res = server_selected.client.resume(&gid).await;
+            bot.edit_message_text(chat.id, id, MsgTaskActionResult::Resume(&gid, &res))
+                .await?;
         }
         UserData::RemoveTask(gid) => {
-            let res = state.client.remove(&gid).await;
-            bot.edit_message_text(
-                chat.id,
-                id,
-                format!("Remove task {gid} {}.", fmt_result(&res)),
-            )
-            .await?;
+            let res = server_selected.client.remove(&gid).await;
+            bot.edit_message_text(chat.id, id, MsgTaskActionResult::Remove(&gid, &res))
+                .await?;
         }
         UserData::AddUri(dir, uris_key) => {
             let Some(uris) = state.uri_cache.lock().remove(&uris_key) else {
@@ -366,7 +349,10 @@ async fn callback_handler(
                 return Ok(());
             };
             let mut text = format!("Add download uris task to {dir} successfully:\n");
-            let res = state.client.add_uris(uris.as_slice(), Some(dir)).await;
+            let res = server_selected
+                .client
+                .add_uris(uris.as_slice(), Some(dir))
+                .await;
             let gids = match res {
                 Ok(gids) => gids,
                 Err(e) => {
@@ -403,7 +389,10 @@ async fn callback_handler(
                 }
             };
 
-            let res = state.client.add_torrent(&file, Some(dir.clone())).await;
+            let res = server_selected
+                .client
+                .add_torrent(&file, Some(dir.clone()))
+                .await;
             let gid = match res {
                 Ok(gid) => gid,
                 Err(e) => {
@@ -420,16 +409,10 @@ async fn callback_handler(
             let text = format!("Add download torrent task to {dir} successfully:\nGID: {gid}");
             bot.edit_message_text(chat.id, id, text).await?;
         }
+        _ => (),
     }
 
     Ok(())
-}
-
-fn fmt_result(res: &anyhow::Result<()>) -> String {
-    match res {
-        Ok(_) => "success".to_string(),
-        Err(e) => format!("failed: {e}"),
-    }
 }
 
 async fn get_telegram_file(bot: &Bot, file_id: &str) -> anyhow::Result<Bytes> {
@@ -448,6 +431,41 @@ async fn get_telegram_file(bot: &Bot, file_id: &str) -> anyhow::Result<Bytes> {
     Ok(data)
 }
 
+async fn select_or_unauthorized(
+    bot: &Bot,
+    chat_id: ChatId,
+    msg_id: Option<MessageId>,
+    state: &State,
+) -> anyhow::Result<()> {
+    if let Some(authorized) = state.authorized(chat_id.0) {
+        if authorized.size_hint().1 == Some(1) {
+            bot.send_message(
+                chat_id,
+                "No need to switch server, there is only one server.",
+            )
+            .reply_to_message_id_opt(msg_id)
+            .await?;
+            return Ok(());
+        }
+        let keyboard = make_switch_server_keyboard(authorized);
+        let selected = state.selected(chat_id.0);
+        bot.send_message(
+            chat_id,
+            MsgSwitchPrompt {
+                current_server_name: selected.as_ref().map(|s| s.name.as_str()),
+            },
+        )
+        .reply_markup(keyboard)
+        .reply_to_message_id_opt(msg_id)
+        .await?;
+    } else {
+        bot.send_message(chat_id, MsgUnauthorized { user_id: chat_id.0 })
+            .reply_to_message_id_opt(msg_id)
+            .await?;
+    }
+    Ok(())
+}
+
 enum UserData {
     Task(SmolStr),
     PauseTask(SmolStr),
@@ -455,41 +473,49 @@ enum UserData {
     RemoveTask(SmolStr),
     AddUri(SmolStr, String),
     AddTorrent(SmolStr, SmolStr),
+    SwitchServer(SmolStr),
 }
 
+#[derive(Debug)]
+pub struct UserDataError;
+
+impl std::fmt::Display for UserDataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid action")
+    }
+}
+impl std::error::Error for UserDataError {}
+
 impl FromStr for UserData {
-    type Err = anyhow::Error;
+    type Err = UserDataError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split_once('|') {
-            Some((action, gid)) => match action {
-                "task" => Ok(UserData::Task(gid.into())),
-                "pause" => Ok(UserData::PauseTask(gid.into())),
-                "resume" => Ok(UserData::ResumeTask(gid.into())),
-                "remove" => Ok(UserData::RemoveTask(gid.into())),
-                "uri" => {
-                    let mut parts = gid.split('|');
-                    let dir = parts
-                        .next()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid action"))?;
-                    let uris_key = parts
-                        .next()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid action"))?;
-                    Ok(UserData::AddUri(dir.into(), uris_key.into()))
-                }
-                "t" => {
-                    let mut parts = gid.split('|');
-                    let dir = parts
-                        .next()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid action"))?;
-                    let torrent_id = parts
-                        .next()
-                        .ok_or_else(|| anyhow::anyhow!("Invalid action"))?;
-                    Ok(UserData::AddTorrent(dir.into(), torrent_id.into()))
-                }
-                _ => Err(anyhow::anyhow!("Invalid action")),
-            },
-            None => Err(anyhow::anyhow!("Invalid action")),
+        let Some((action, gid)) = s.split_once('|') else {
+            return Err(UserDataError);
+        };
+        match action {
+            "task" => Ok(UserData::Task(gid.into())),
+            "pause" => Ok(UserData::PauseTask(gid.into())),
+            "resume" => Ok(UserData::ResumeTask(gid.into())),
+            "remove" => Ok(UserData::RemoveTask(gid.into())),
+            "uri" => {
+                let mut parts = gid.split('|');
+                let dir = parts.next().ok_or(UserDataError)?;
+                let uris_key = parts.next().ok_or(UserDataError)?;
+                Ok(UserData::AddUri(dir.into(), uris_key.into()))
+            }
+            "t" => {
+                let mut parts = gid.split('|');
+                let dir = parts.next().ok_or(UserDataError)?;
+                let torrent_id = parts.next().ok_or(UserDataError)?;
+                Ok(UserData::AddTorrent(dir.into(), torrent_id.into()))
+            }
+            "switch" => {
+                let mut parts = gid.split('|');
+                let server = parts.next().ok_or(UserDataError)?;
+                Ok(UserData::SwitchServer(server.into()))
+            }
+            _ => Err(UserDataError),
         }
     }
 }

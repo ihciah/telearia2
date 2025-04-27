@@ -1,11 +1,11 @@
 use crate::{
     aria2::Aria2Client,
-    config::{Aria2Config, DownloadConfig, Param, TelegramConfig},
+    config::{Aria2ConfigGroup, DownloadConfig, Param, TelegramConfig},
     format::{
         make_single_task_keyboard, make_tasks_keyboard, MessageFmtBrief, MessageFmtDetailed,
         TaskExt,
     },
-    utils::ExpiredDeque,
+    utils::{ExpiredDeque, SingleMultiMap},
 };
 use aria2_rs::{
     status::{Status, TaskStatus},
@@ -14,10 +14,7 @@ use aria2_rs::{
 use hashlink::LruCache;
 use parking_lot::{Mutex, RwLock};
 use smol_str::SmolStr;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use teloxide::{
     requests::Requester,
     types::{ChatId, MessageId},
@@ -191,38 +188,59 @@ impl TasksCache {
             }
         }
     }
+
+    pub async fn refresh(this: &Arc<RwLock<Self>>, selected_client: &Aria2Client) {
+        if !this.read().expired() {
+            return;
+        }
+        if let Ok(Ok(tasks)) =
+            tokio::time::timeout(REFRESH_TIMEOUT, selected_client.get_tasks()).await
+        {
+            let mut tasks_cache = this.write();
+            tasks_cache.tasks = tasks
+                .into_iter()
+                .filter_map(|t| {
+                    if let Some(gid) = &t.gid {
+                        Some((gid.clone(), Arc::new(t)))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            tasks_cache.last_refresh = std::time::Instant::now();
+        }
+    }
 }
 
-pub struct State {
-    admins: HashSet<i64>,
-    pub tasks_cache: Arc<RwLock<TasksCache>>,
-    pub uri_cache: Arc<Mutex<LruCache<String, SmallVec<String>>>>,
-    pub file_cache: Arc<Mutex<LruCache<SmolStr, String>>>,
+/// Single server state
+pub struct ServerState {
+    pub name: String,
     pub client: Aria2Client,
+    pub tasks_cache: Arc<RwLock<TasksCache>>,
     pub download_config: DownloadConfig,
     _drop: tokio::sync::oneshot::Receiver<()>,
 }
 
-impl State {
-    pub async fn new<C: Param<Aria2Config> + Param<TelegramConfig> + Param<DownloadConfig>>(
-        cfg: &C,
-        bot: Bot,
+impl ServerState {
+    pub async fn new(
+        name: String,
+        client: Aria2Client,
+        tasks_cache: Arc<RwLock<TasksCache>>,
+        download_config: DownloadConfig,
     ) -> anyhow::Result<Self> {
-        let telegram_cfg: TelegramConfig = cfg.param();
-        let client = Aria2Client::connect(cfg).await?;
-        let tasks_cache = Arc::new(RwLock::new(TasksCache::new(
-            telegram_cfg
-                .subscribe_expire_secs
-                .map(std::time::Duration::from_secs)
-                .unwrap_or(DEFAULT_SUBSCRIBER_EXPIRE),
-            bot,
-        )));
-
-        // Spawn background refresh loop
         let (mut drop_tx, _drop) = tokio::sync::oneshot::channel();
+        let server_state = Self {
+            name,
+            client,
+            tasks_cache,
+            download_config,
+            _drop,
+        };
+
+        // spawn background refresh loop
         {
-            let client = client.clone();
-            let tasks_cache = tasks_cache.clone();
+            let client = server_state.client.clone();
+            let tasks_cache = server_state.tasks_cache.clone();
             tokio::spawn(async move {
                 tokio::pin! {
                     let drop = drop_tx.closed();
@@ -263,40 +281,119 @@ impl State {
             });
         }
 
+        Ok(server_state)
+    }
+}
+
+pub struct State {
+    // user id -> {server name -> ServerState{Aria2Client, TasksCache, DownloadConfig}}
+    pub server_group: HashMap<i64, SingleMultiMap<Arc<ServerState>>>,
+    // user id -> ServerState{Aria2Client, TasksCache, DownloadConfig}
+    pub server_selected: RwLock<HashMap<i64, Arc<ServerState>>>,
+
+    // telearia2 internal cache
+    pub uri_cache: Arc<Mutex<LruCache<String, SmallVec<String>>>>,
+    pub file_cache: Arc<Mutex<LruCache<SmolStr, String>>>,
+}
+
+impl State {
+    pub async fn new<C: Param<Aria2ConfigGroup> + Param<TelegramConfig> + Param<DownloadConfig>>(
+        cfg: &C,
+        bot: Bot,
+    ) -> anyhow::Result<Self> {
+        let telegram_config: TelegramConfig = cfg.param();
+        let client_config_group: Aria2ConfigGroup = cfg.param();
+        let default_download_config: DownloadConfig = cfg.param();
+
+        let mut server_group_builder: HashMap<i64, HashMap<String, Arc<ServerState>>> =
+            HashMap::new();
+        for (name, client_config) in client_config_group.into_iter() {
+            let client = Aria2Client::connect(&client_config).await?;
+            let tasks_cache = Arc::new(RwLock::new(TasksCache::new(
+                telegram_config
+                    .subscribe_expire_secs
+                    .map(std::time::Duration::from_secs)
+                    .unwrap_or(DEFAULT_SUBSCRIBER_EXPIRE),
+                bot.clone(),
+            )));
+            let download_config = client_config
+                .download_override
+                .clone()
+                .unwrap_or_else(|| default_download_config.clone());
+            let server_state = Arc::new(
+                ServerState::new(
+                    name.clone(),
+                    client.clone(),
+                    tasks_cache.clone(),
+                    download_config,
+                )
+                .await?,
+            );
+
+            let admins = client_config
+                .admins_override
+                .as_ref()
+                .unwrap_or(&telegram_config.admins);
+            for admin in admins.iter() {
+                server_group_builder
+                    .entry(*admin)
+                    .or_default()
+                    .insert(name.clone(), server_state.clone());
+            }
+        }
+
+        let server_group: HashMap<i64, SingleMultiMap<Arc<ServerState>>> = server_group_builder
+            .into_iter()
+            .map(|(k, v)| (k, SingleMultiMap::from(v)))
+            .collect();
+
+        let mut server_selected = HashMap::new();
+        for (&user, servers) in server_group.iter() {
+            // If user only has one server, select it automatically
+            if let Some(server) = servers.unwrap_single_ref() {
+                server_selected.insert(user, server.clone());
+            }
+        }
+
         Ok(Self {
-            admins: telegram_cfg.admins.iter().cloned().collect(),
-            tasks_cache,
+            server_group,
+            server_selected: RwLock::new(server_selected),
             uri_cache: Arc::new(Mutex::new(LruCache::new(URI_LRU_SIZE))),
             file_cache: Arc::new(Mutex::new(LruCache::new(URI_LRU_SIZE))),
-            client,
-            download_config: cfg.param(),
-            _drop,
         })
     }
 
     #[inline]
-    pub fn auth(&self, user_id: i64) -> bool {
-        self.admins.contains(&user_id)
+    pub fn authorized(&self, user_id: i64) -> Option<impl Iterator<Item = &str>> {
+        self.server_group
+            .get(&user_id)
+            .map(|servers| servers.iter().map(|(name, _)| name))
     }
 
-    pub async fn refresh(&self) {
-        if !self.tasks_cache.read().expired() {
-            return;
-        }
-        if let Ok(Ok(tasks)) = tokio::time::timeout(REFRESH_TIMEOUT, self.client.get_tasks()).await
-        {
-            let mut tasks_cache = self.tasks_cache.write();
-            tasks_cache.tasks = tasks
-                .into_iter()
-                .filter_map(|t| {
-                    if let Some(gid) = &t.gid {
-                        Some((gid.clone(), Arc::new(t)))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            tasks_cache.last_refresh = std::time::Instant::now();
-        }
+    #[inline]
+    pub fn selected(&self, user_id: i64) -> Option<Arc<ServerState>> {
+        self.server_selected.read().get(&user_id).cloned()
     }
+
+    #[inline]
+    pub fn try_select(&self, user_id: i64, server: &str) -> SelectResult {
+        if let Some(servers) = self.server_group.get(&user_id) {
+            if servers.unwrap_single_ref().is_some() {
+                // If user only has one server, no need to select
+                return SelectResult::NoNeed;
+            }
+            if let Some(server) = servers.get(server) {
+                self.server_selected.write().insert(user_id, server.clone());
+                return SelectResult::Success;
+            }
+        }
+        SelectResult::Failure
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SelectResult {
+    Success,
+    NoNeed,
+    Failure,
 }
