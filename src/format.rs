@@ -205,7 +205,7 @@ impl std::fmt::Display for SizeFormatter {
         clamp_size!(size, unit, "GiB");
         clamp_size!(size, unit, "TiB");
         clamp_size!(size, unit, "PiB");
-        write!(f, "{:.2} {}", size, unit)
+        write!(f, "{size:.2} {unit}")
     }
 }
 

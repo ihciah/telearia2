@@ -23,7 +23,7 @@ use std::{error::Error, str::FromStr, sync::Arc};
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
-    types::{Me, MessageId, ParseMode},
+    types::{MaybeInaccessibleMessage, Me, MessageId, ParseMode, ReplyParameters},
     utils::command::BotCommands,
 };
 use utils::SendMessageSettersExt;
@@ -105,7 +105,7 @@ async fn message_handler(
             Command::Help => {
                 // Just send the description of all commands.
                 bot.send_message(msg.chat.id, Command::descriptions().to_string())
-                    .reply_to_message_id(msg.id)
+                    .reply_parameters(ReplyParameters::new(msg.id))
                     .await?;
                 return Ok(());
             }
@@ -116,7 +116,7 @@ async fn message_handler(
             Command::Id => {
                 bot.send_message(msg.chat.id, format!("`{}`", msg.chat.id))
                     .parse_mode(ParseMode::MarkdownV2)
-                    .reply_to_message_id(msg.id)
+                    .reply_parameters(ReplyParameters::new(msg.id))
                     .await?;
                 return Ok(());
             }
@@ -151,7 +151,7 @@ async fn message_handler(
                     msg.chat.id,
                     MsgTaskActionResult::Purge(&server_selected.client.purge_downloaded().await),
                 )
-                .reply_to_message_id(msg.id)
+                .reply_parameters(ReplyParameters::new(msg.id))
                 .await?;
             }
             _ => unreachable!(),
@@ -196,14 +196,14 @@ async fn handle_message(
     // base32 format is also considered as valid magnet link.
     if let Some(text) = msg.text() {
         if text.len() == 40 && text.chars().all(|c| c.is_ascii_hexdigit()) {
-            magnets.push(format!("magnet:?xt=urn:btih:{}", text));
+            magnets.push(format!("magnet:?xt=urn:btih:{text}"));
         }
         if text.len() == 32
             && text
                 .chars()
                 .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '2'..='7'))
         {
-            magnets.push(format!("magnet:?xt=urn:btih:{}", text));
+            magnets.push(format!("magnet:?xt=urn:btih:{text}"));
         }
     }
 
@@ -280,9 +280,11 @@ async fn callback_handler(
     q: CallbackQuery,
     state: Arc<State>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let (Some(user_data), Some(Message { id, chat, .. })) = (q.data, q.message) else {
+    let (Some(user_data), Some(MaybeInaccessibleMessage::Regular(q))) = (q.data, q.message) else {
         return Ok(());
     };
+    let id = q.id;
+    let chat = q.chat;
 
     let user_data = UserData::from_str(&user_data)?;
     if let UserData::SwitchServer(server_name) = user_data {
@@ -320,7 +322,7 @@ async fn callback_handler(
             let msg = bot
                 .send_message(chat.id, task_desc)
                 .reply_markup(keyboard)
-                .reply_to_message_id(id)
+                .reply_parameters(ReplyParameters::new(id))
                 .await?;
             server_selected
                 .tasks_cache
@@ -368,12 +370,8 @@ async fn callback_handler(
         }
         UserData::AddTorrent(dir, file_id_key) => {
             let Some(file_id) = state.file_cache.lock().remove(&file_id_key) else {
-                bot.edit_message_text(
-                    chat.id,
-                    id,
-                    format!("File cache {} not found!", file_id_key),
-                )
-                .await?;
+                bot.edit_message_text(chat.id, id, format!("File cache {file_id_key} not found!"))
+                    .await?;
                 return Ok(());
             };
             let file = match get_telegram_file(&bot, file_id.as_str()).await {

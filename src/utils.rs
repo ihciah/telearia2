@@ -4,6 +4,7 @@ use std::{
 };
 
 use serde::{de::DeserializeOwned, Deserialize};
+use teloxide::types::ReplyParameters;
 use toml::Value;
 
 #[derive(Debug, Clone)]
@@ -155,7 +156,7 @@ impl<T> SingleMultiMap<T> {
     }
 
     #[inline]
-    pub fn iter(&self) -> SingleMultiMapIter<T> {
+    pub fn iter(&self) -> SingleMultiMapIter<'_, T> {
         match self {
             Self::Single(inner) => SingleMultiMapIter::Single(Some(inner)),
             Self::Multi(map) => SingleMultiMapIter::Multi(map.iter()),
@@ -230,7 +231,7 @@ pub trait SendMessageSettersExt {
 impl<T: teloxide::payloads::SendMessageSetters> SendMessageSettersExt for T {
     fn reply_to_message_id_opt(self, message_id: Option<teloxide::types::MessageId>) -> Self {
         if let Some(message_id) = message_id {
-            self.reply_to_message_id(message_id)
+            self.reply_parameters(ReplyParameters::new(message_id))
         } else {
             self
         }
