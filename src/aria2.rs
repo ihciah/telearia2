@@ -10,6 +10,9 @@ use smol_str::SmolStr;
 
 use crate::config::{Aria2Config, Param};
 
+const MAX_RETRIES: u32 = 3;
+const RETRY_DELAY: Duration = Duration::from_millis(100);
+
 #[derive(Clone)]
 pub struct Aria2Client {
     cli: BatchClient,
@@ -89,14 +92,39 @@ impl Aria2Client {
         });
         let mut gids = Vec::with_capacity(links.len());
         for link in links.iter() {
-            let gid = self
-                .cli
-                .call_instantly(&aria2_rs::call::AddUriCall {
-                    uris: [link.to_string()].as_slice().into(),
-                    options: options.clone(),
-                })
-                .await?;
-            gids.push(gid.0);
+            let mut last_err = None;
+            for attempt in 0..MAX_RETRIES {
+                match self
+                    .cli
+                    .call_instantly(&aria2_rs::call::AddUriCall {
+                        uris: [link.to_string()].as_slice().into(),
+                        options: options.clone(),
+                    })
+                    .await
+                {
+                    Ok(gid) => {
+                        gids.push(gid.0);
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "add_uris attempt {}/{} failed for {}: {}",
+                            attempt + 1,
+                            MAX_RETRIES,
+                            link,
+                            e
+                        );
+                        last_err = Some(e);
+                        if attempt + 1 < MAX_RETRIES {
+                            tokio::time::sleep(RETRY_DELAY).await;
+                        }
+                    }
+                }
+            }
+            if let Some(e) = last_err {
+                return Err(e.into());
+            }
         }
         Ok(gids)
     }
@@ -106,15 +134,33 @@ impl Aria2Client {
             dir: Some(dir),
             ..Default::default()
         });
-        let gid = self
-            .cli
-            .call_instantly(&aria2_rs::call::AddTorrentCall {
-                torrent: torrent_data.into(),
-                uris: Default::default(),
-                options: options.clone(),
-            })
-            .await?;
-        Ok(gid.0)
+        let mut last_err = None;
+        for attempt in 0..MAX_RETRIES {
+            match self
+                .cli
+                .call_instantly(&aria2_rs::call::AddTorrentCall {
+                    torrent: torrent_data.into(),
+                    uris: Default::default(),
+                    options: options.clone(),
+                })
+                .await
+            {
+                Ok(gid) => return Ok(gid.0),
+                Err(e) => {
+                    tracing::warn!(
+                        "add_torrent attempt {}/{} failed: {}",
+                        attempt + 1,
+                        MAX_RETRIES,
+                        e
+                    );
+                    last_err = Some(e);
+                    if attempt + 1 < MAX_RETRIES {
+                        tokio::time::sleep(RETRY_DELAY).await;
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap().into())
     }
 
     pub async fn purge_downloaded(&self) -> Result<()> {
