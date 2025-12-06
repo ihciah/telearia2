@@ -10,6 +10,11 @@ use smol_str::SmolStr;
 
 use crate::config::{Aria2Config, Param};
 
+pub struct AddUrisResult {
+    pub gids: Vec<SmolStr>,
+    pub error: Option<anyhow::Error>,
+}
+
 const MAX_RETRIES: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_millis(100);
 
@@ -106,7 +111,7 @@ impl Aria2Client {
         Ok(())
     }
 
-    pub async fn add_uris(&self, links: &[String], dir: Option<SmolStr>) -> Result<Vec<SmolStr>> {
+    pub async fn add_uris(&self, links: &[String], dir: Option<SmolStr>) -> AddUrisResult {
         let options = dir.map(|dir| aria2_rs::options::TaskOptions {
             dir: Some(dir),
             ..Default::default()
@@ -118,10 +123,12 @@ impl Aria2Client {
                 uris: link_vec,
                 options: options.clone(),
             };
-            let gid = retry_call("add_uris", || self.cli.call_instantly(&call)).await?;
-            gids.push(gid.0);
+            match retry_call("add_uris", || self.cli.call_instantly(&call)).await {
+                Ok(gid) => gids.push(gid.0),
+                Err(e) => return AddUrisResult { gids, error: Some(e) },
+            }
         }
-        Ok(gids)
+        AddUrisResult { gids, error: None }
     }
 
     pub async fn add_torrent(&self, torrent_data: &[u8], dir: Option<SmolStr>) -> Result<SmolStr> {

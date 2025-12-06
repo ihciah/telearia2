@@ -4,6 +4,7 @@ mod format;
 mod state;
 mod utils;
 
+use aria2::AddUrisResult;
 use aria2_rs::{status::TaskStatus, SmallVec};
 use bytes::Bytes;
 use clap::Parser;
@@ -356,21 +357,24 @@ async fn callback_handler(
                     .await?;
                 return Ok(());
             };
-            let mut text = format!("Add download uris task to {dir} successfully:\n");
-            let res = server_selected
+            let AddUrisResult { gids, error } = server_selected
                 .client
-                .add_uris(uris.as_slice(), Some(dir))
+                .add_uris(uris.as_slice(), Some(dir.clone()))
                 .await;
-            let gids = match res {
-                Ok(gids) => gids,
-                Err(e) => {
-                    bot.edit_message_text(chat.id, id, format!("Push add uris task failed: {e}"))
-                        .await?;
-                    return Ok(());
-                }
+            let mut text = if gids.is_empty() {
+                String::new()
+            } else {
+                format!("Add download uris task to {dir} successfully:\n")
             };
-            for (uri, gid) in uris.into_iter().zip(gids.into_iter()) {
+            for (uri, gid) in uris.iter().zip(gids.iter()) {
                 text.push_str(&format!("{uri}: {gid}\n"));
+            }
+            if let Some(e) = error {
+                if !gids.is_empty() {
+                    text.push_str(&format!("\nPartially failed at uri[{}]: {e}", gids.len()));
+                } else {
+                    text = format!("Push add uris task failed: {e}");
+                }
             }
             bot.edit_message_text(chat.id, id, text).await?;
         }
