@@ -19,7 +19,16 @@ use format::{
 };
 use smol_str::SmolStr;
 use state::{State, TasksCache};
-use std::{error::Error, str::FromStr, sync::Arc};
+use std::{error::Error, str::FromStr, sync::Arc, sync::LazyLock};
+
+static MAGNET_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"magnet:\?xt=urn:btih:((?:[0-9a-fA-F]{40})|(?:[a-zA-Z2-7]{32}))")
+        .expect("invalid magnet regex")
+});
+
+static HTTP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"((?:https|http)://[^\s]*)").expect("invalid http regex")
+});
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
@@ -183,9 +192,7 @@ async fn handle_message(
 
     // extract all magnet links with regexp to Vec<String>.
     // TODO: extract and pass more query parameters.
-    let magnet_re =
-        regex::Regex::new(r"magnet:\?xt=urn:btih:((?:[0-9a-fA-F]{40})|(?:[a-zA-Z2-7]{32}))")?;
-    let mut magnets: SmallVec<String> = magnet_re
+    let mut magnets: SmallVec<String> = MAGNET_RE
         .captures_iter(msg.text().unwrap_or(""))
         .map(|cap| format!("magnet:?xt=urn:btih:{}", &cap[1].to_ascii_lowercase()))
         .collect();
@@ -224,8 +231,7 @@ async fn handle_message(
     }
 
     // extract all http or https links(not magnet) with regexp to Vec<String>.
-    let http_re = regex::Regex::new(r"((?:https|http)://[^\s]*)")?;
-    let mut http_links: SmallVec<String> = http_re
+    let mut http_links: SmallVec<String> = HTTP_RE
         .captures_iter(msg.text().unwrap_or(""))
         .map(|cap| cap[1].to_string())
         .collect();
