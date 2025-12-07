@@ -199,34 +199,38 @@ impl TasksCache {
             !v.is_empty()
         });
 
-        for &list_sub in self.subscribers.list_subscribers.iter() {
+        if !self.subscribers.list_subscribers.is_empty() {
             let tasks = self.fmt_tasks();
             let keyboard = make_tasks_keyboard(tasks);
-            let bot = self.bot.clone();
-            tokio::spawn(async move {
-                let mut rep = bot.edit_message_reply_markup(list_sub.chat_id, list_sub.message_id);
-                rep.reply_markup = Some(keyboard);
-                if let Err(e) = rep.await {
-                    if !matches!(
-                        e,
-                        teloxide::RequestError::Api(teloxide::ApiError::MessageNotModified)
-                    ) {
-                        tracing::warn!("Failed to edit message: {e}");
+            for &list_sub in self.subscribers.list_subscribers.iter() {
+                let bot = self.bot.clone();
+                let keyboard = keyboard.clone();
+                tokio::spawn(async move {
+                    let mut rep =
+                        bot.edit_message_reply_markup(list_sub.chat_id, list_sub.message_id);
+                    rep.reply_markup = Some(keyboard);
+                    if let Err(e) = rep.await {
+                        if !matches!(
+                            e,
+                            teloxide::RequestError::Api(teloxide::ApiError::MessageNotModified)
+                        ) {
+                            tracing::warn!("Failed to edit message: {e}");
+                        }
                     }
-                }
-            });
+                });
+            }
         }
 
         for (gid, subscribers) in self.subscribers.task_subscribers.iter() {
-            let task_desc = self.fmt_task(gid);
-            if let Some((task_desc, task_status)) = task_desc {
+            if let Some((task_desc, task_status)) = self.fmt_task(gid) {
+                let keyboard = make_single_task_keyboard(
+                    gid,
+                    task_status.status.unwrap_or(TaskStatus::Removed),
+                );
                 for &task_sub in subscribers.iter() {
                     let bot = self.bot.clone();
                     let text = task_desc.clone();
-                    let keyboard = make_single_task_keyboard(
-                        gid,
-                        task_status.status.unwrap_or(TaskStatus::Removed),
-                    );
+                    let keyboard = keyboard.clone();
                     tokio::spawn(async move {
                         let mut rep =
                             bot.edit_message_text(task_sub.chat_id, task_sub.message_id, text);
