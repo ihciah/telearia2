@@ -354,6 +354,9 @@ pub struct State {
     // telearia2 internal cache
     pub uri_cache: Arc<Mutex<LruCache<String, SmallVec<String>>>>,
     pub file_cache: Arc<Mutex<LruCache<SmolStr, String>>>,
+
+    // shared http client for downloading files
+    pub http_client: reqwest::Client,
 }
 
 impl State {
@@ -420,6 +423,7 @@ impl State {
             server_selected: RwLock::new(server_selected),
             uri_cache: Arc::new(Mutex::new(LruCache::new(URI_LRU_SIZE))),
             file_cache: Arc::new(Mutex::new(LruCache::new(URI_LRU_SIZE))),
+            http_client: reqwest::Client::new(),
         })
     }
 

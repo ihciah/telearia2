@@ -384,7 +384,7 @@ async fn callback_handler(
                     .await?;
                 return Ok(());
             };
-            let file = match get_telegram_file(&bot, file_id.as_str()).await {
+            let file = match get_telegram_file(&bot, file_id.as_str(), &state.http_client).await {
                 Ok(file) => file,
                 Err(e) => {
                     bot.edit_message_text(
@@ -423,13 +423,17 @@ async fn callback_handler(
     Ok(())
 }
 
-async fn get_telegram_file(bot: &Bot, file_id: &str) -> anyhow::Result<Bytes> {
+async fn get_telegram_file(
+    bot: &Bot,
+    file_id: &str,
+    http_client: &reqwest::Client,
+) -> anyhow::Result<Bytes> {
     let file = bot.get_file(file_id).await?;
     let url = bot
         .api_url()
         .join(&format!("file/bot{}/{}", bot.token(), file.path))
         .expect("failed to format file url");
-    let data = reqwest::Client::new()
+    let data = http_client
         .get(url)
         .send()
         .await?
