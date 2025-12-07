@@ -9,14 +9,12 @@ use aria2_rs::{
 use smol_str::SmolStr;
 
 use crate::config::{Aria2Config, Param};
+use crate::constants::{ARIA2_MAX_RETRIES, ARIA2_RETRY_DELAY};
 
 pub struct AddUrisResult {
     pub gids: Vec<SmolStr>,
     pub error: Option<anyhow::Error>,
 }
-
-const MAX_RETRIES: u32 = 3;
-const RETRY_DELAY: Duration = Duration::from_millis(100);
 
 async fn retry_call<T, F, Fut>(op_name: &str, f: F) -> Result<T>
 where
@@ -24,7 +22,7 @@ where
     Fut: Future<Output = Result<T, aria2_rs::Error>>,
 {
     let mut last_err = None;
-    for attempt in 0..MAX_RETRIES {
+    for attempt in 0..ARIA2_MAX_RETRIES {
         match f().await {
             Ok(result) => return Ok(result),
             Err(e) => {
@@ -32,17 +30,17 @@ where
                     "{} attempt {}/{} failed: {}",
                     op_name,
                     attempt + 1,
-                    MAX_RETRIES,
+                    ARIA2_MAX_RETRIES,
                     e
                 );
                 last_err = Some(e);
-                if attempt + 1 < MAX_RETRIES {
-                    tokio::time::sleep(RETRY_DELAY).await;
+                if attempt + 1 < ARIA2_MAX_RETRIES {
+                    tokio::time::sleep(ARIA2_RETRY_DELAY).await;
                 }
             }
         }
     }
-    Err(last_err.expect("MAX_RETRIES must be > 0").into())
+    Err(last_err.expect("ARIA2_MAX_RETRIES must be > 0").into())
 }
 
 #[derive(Clone)]

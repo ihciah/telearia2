@@ -4,11 +4,6 @@ use serde::Deserialize;
 
 use crate::utils::SingleMultiMap;
 
-// max torrent size is 1M
-pub const MAX_TORRENT_SIZE: u32 = 1024 * 1024;
-// to strip task name
-pub const MAX_BRIFE_NAME_LEN: usize = 40;
-
 pub trait Param<T> {
     fn param(&self) -> T;
 }

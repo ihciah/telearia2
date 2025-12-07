@@ -1,6 +1,9 @@
 use crate::{
     aria2::Aria2Client,
     config::{Aria2ConfigGroup, DownloadConfig, Param, TelegramConfig},
+    constants::{
+        CACHE_EXPIRE, DEFAULT_SUBSCRIBER_EXPIRE, REFRESH_INTERVAL, REFRESH_TIMEOUT, URI_LRU_SIZE,
+    },
     format::{
         make_refresh_list_keyboard, make_refresh_task_keyboard, make_single_task_keyboard,
         make_tasks_keyboard, msg::MsgTaskListExpired, MessageFmtBrief, MessageFmtDetailed, TaskExt,
@@ -20,12 +23,6 @@ use teloxide::{
     types::{ChatId, MessageId},
     Bot,
 };
-
-const DEFAULT_SUBSCRIBER_EXPIRE: std::time::Duration = std::time::Duration::from_secs(3 * 60);
-const REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
-const CACHE_EXPIRE: std::time::Duration = std::time::Duration::from_secs(3);
-const URI_LRU_SIZE: usize = 4096;
 
 /// A wrapper around `HashMap<SmolStr, Arc<Status>>` that implements `PartialEq`
 /// by comparing only the fields relevant for UI display updates.

@@ -6,7 +6,8 @@ use std::{
 use aria2_rs::status::{BittorrentStatus, Status, TaskStatus};
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-use crate::config::{DirConfig, MAX_BRIFE_NAME_LEN};
+use crate::config::DirConfig;
+use crate::constants::MAX_BRIEF_NAME_LEN;
 
 pub trait MessageFmt {
     fn fmt_message<const DETAILED: bool>(&self, f: &mut Formatter<'_>) -> Result<(), Error>;
@@ -119,7 +120,7 @@ impl MessageFmt for Status {
                     name.trim_start_matches("https://")
                         .trim_start_matches("http://")
                         .chars()
-                        .take(MAX_BRIFE_NAME_LEN)
+                        .take(MAX_BRIEF_NAME_LEN)
                         .collect::<String>()
                 )?;
             } else {
@@ -130,7 +131,7 @@ impl MessageFmt for Status {
                     name.trim_start_matches("https://")
                         .trim_start_matches("http://")
                         .chars()
-                        .take(MAX_BRIFE_NAME_LEN)
+                        .take(MAX_BRIEF_NAME_LEN)
                         .collect::<String>()
                 )?;
             }
