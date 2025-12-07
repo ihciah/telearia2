@@ -258,23 +258,23 @@ pub fn make_single_task_keyboard(gid: &str, status: TaskStatus) -> InlineKeyboar
 pub fn make_download_confirm_keyboard<F>(
     mapping: &[DirConfig],
     default_dir: &str,
-    formatter: F,
+    mut register: F,
 ) -> InlineKeyboardMarkup
 where
-    F: Fn(&str) -> String,
+    F: FnMut(&str) -> String,
 {
     let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
     for dir_cfg in mapping.chunks(3) {
         let row = dir_cfg
             .iter()
-            .map(|dc| InlineKeyboardButton::callback(&dc.name, formatter(dc.path.as_str())))
+            .map(|dc| InlineKeyboardButton::callback(&dc.name, register(dc.path.as_str())))
             .collect();
 
         keyboard.push(row);
     }
     keyboard.push(vec![InlineKeyboardButton::callback(
         "Default",
-        formatter(default_dir),
+        register(default_dir),
     )]);
     InlineKeyboardMarkup::new(keyboard)
 }

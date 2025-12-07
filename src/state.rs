@@ -25,7 +25,7 @@ const DEFAULT_SUBSCRIBER_EXPIRE: std::time::Duration = std::time::Duration::from
 const REFRESH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 const CACHE_EXPIRE: std::time::Duration = std::time::Duration::from_secs(3);
-const URI_LRU_SIZE: usize = 1024;
+const URI_LRU_SIZE: usize = 4096;
 
 /// A wrapper around `HashMap<SmolStr, Arc<Status>>` that implements `PartialEq`
 /// by comparing only the fields relevant for UI display updates.
@@ -351,9 +351,10 @@ pub struct State {
     // user id -> ServerState{Aria2Client, TasksCache, DownloadConfig}
     pub server_selected: RwLock<HashMap<i64, Arc<ServerState>>>,
 
-    // telearia2 internal cache
-    pub uri_cache: Arc<Mutex<LruCache<String, SmallVec<String>>>>,
-    pub file_cache: Arc<Mutex<LruCache<SmolStr, String>>>,
+    // telearia2 internal cache: uuid -> (dir, uris)
+    pub uri_cache: Arc<Mutex<LruCache<String, (SmolStr, SmallVec<String>)>>>,
+    // telearia2 internal cache: uuid -> (dir, file_id)
+    pub file_cache: Arc<Mutex<LruCache<String, (SmolStr, String)>>>,
 
     // shared http client for downloading files
     pub http_client: reqwest::Client,

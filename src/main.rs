@@ -228,14 +228,20 @@ async fn handle_message(
     }
 
     if !magnets.is_empty() {
-        let uuid = uuid::Uuid::new_v4().simple().to_string();
         let text: String = MsgDownloadMagnetConfirm { magnets: &magnets }.into();
         let keyboard = make_download_confirm_keyboard(
             &server_selected.download_config.magnet_dirs,
             &server_selected.download_config.default_dir,
-            |dir| format!("uri|{dir}|{uuid}"),
+            |dir| {
+                let uuid = uuid::Uuid::new_v4().simple().to_string();
+                let callback = format!("uri|{uuid}");
+                state
+                    .uri_cache
+                    .lock()
+                    .insert(uuid, (dir.into(), magnets.clone()));
+                callback
+            },
         );
-        state.uri_cache.lock().insert(uuid, magnets);
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
@@ -251,14 +257,20 @@ async fn handle_message(
     http_links.sort_unstable();
     http_links.dedup();
     if !http_links.is_empty() {
-        let uuid = uuid::Uuid::new_v4().simple().to_string();
         let text: String = MsgDownloadLinkConfirm { links: &http_links }.into();
         let keyboard = make_download_confirm_keyboard(
             &server_selected.download_config.link_dirs,
             &server_selected.download_config.default_dir,
-            |dir| format!("uri|{dir}|{uuid}"),
+            |dir| {
+                let uuid = uuid::Uuid::new_v4().simple().to_string();
+                let callback = format!("uri|{uuid}");
+                state
+                    .uri_cache
+                    .lock()
+                    .insert(uuid, (dir.into(), http_links.clone()));
+                callback
+            },
         );
-        state.uri_cache.lock().insert(uuid, http_links);
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
@@ -273,17 +285,21 @@ async fn handle_message(
                 .await?;
             return Ok(ControlFlow::Break(()));
         }
-        let uuid = uuid::Uuid::new_v4().simple().to_string();
+        let file_id = document.file.id.to_string();
         let text = MsgDownloadTorrentConfirm { document };
         let keyboard = make_download_confirm_keyboard(
             &server_selected.download_config.torrent_dirs,
             &server_selected.download_config.default_dir,
-            |dir| format!("t|{dir}|{uuid}"),
+            |dir| {
+                let uuid = uuid::Uuid::new_v4().simple().to_string();
+                let callback = format!("t|{uuid}");
+                state
+                    .file_cache
+                    .lock()
+                    .insert(uuid, (dir.into(), file_id.clone()));
+                callback
+            },
         );
-        state
-            .file_cache
-            .lock()
-            .insert(uuid.into(), document.file.id.to_string());
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
@@ -363,9 +379,9 @@ async fn callback_handler(
             bot.edit_message_text(chat.id, id, MsgTaskActionResult::Remove(&gid, &res))
                 .await?;
         }
-        UserData::AddUri(dir, uris_key) => {
-            let Some(uris) = state.uri_cache.lock().remove(&uris_key) else {
-                bot.edit_message_text(chat.id, id, format!("Uri cache {uris_key} not found!"))
+        UserData::AddUri(uuid) => {
+            let Some((dir, uris)) = state.uri_cache.lock().remove(&uuid) else {
+                bot.edit_message_text(chat.id, id, format!("Uri cache {uuid} not found!"))
                     .await?;
                 return Ok(());
             };
@@ -390,9 +406,9 @@ async fn callback_handler(
             }
             bot.edit_message_text(chat.id, id, text).await?;
         }
-        UserData::AddTorrent(dir, file_id_key) => {
-            let Some(file_id) = state.file_cache.lock().remove(&file_id_key) else {
-                bot.edit_message_text(chat.id, id, format!("File cache {file_id_key} not found!"))
+        UserData::AddTorrent(uuid) => {
+            let Some((dir, file_id)) = state.file_cache.lock().remove(&uuid) else {
+                bot.edit_message_text(chat.id, id, format!("File cache {uuid} not found!"))
                     .await?;
                 return Ok(());
             };
@@ -495,8 +511,8 @@ enum UserData {
     PauseTask(SmolStr),
     ResumeTask(SmolStr),
     RemoveTask(SmolStr),
-    AddUri(SmolStr, String),
-    AddTorrent(SmolStr, SmolStr),
+    AddUri(String),
+    AddTorrent(String),
     SwitchServer(SmolStr),
 }
 
@@ -522,18 +538,8 @@ impl FromStr for UserData {
             "pause" => Ok(UserData::PauseTask(gid.into())),
             "resume" => Ok(UserData::ResumeTask(gid.into())),
             "remove" => Ok(UserData::RemoveTask(gid.into())),
-            "uri" => {
-                let mut parts = gid.split('|');
-                let dir = parts.next().ok_or(UserDataError)?;
-                let uris_key = parts.next().ok_or(UserDataError)?;
-                Ok(UserData::AddUri(dir.into(), uris_key.into()))
-            }
-            "t" => {
-                let mut parts = gid.split('|');
-                let dir = parts.next().ok_or(UserDataError)?;
-                let torrent_id = parts.next().ok_or(UserDataError)?;
-                Ok(UserData::AddTorrent(dir.into(), torrent_id.into()))
-            }
+            "uri" => Ok(UserData::AddUri(gid.into())),
+            "t" => Ok(UserData::AddTorrent(gid.into())),
             "switch" => {
                 let mut parts = gid.split('|');
                 let server = parts.next().ok_or(UserDataError)?;
