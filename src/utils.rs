@@ -57,7 +57,8 @@ impl<T> ExpiredDeque<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        let now = Instant::now();
+        !self.inner.iter().any(|item| item.expire >= now)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
