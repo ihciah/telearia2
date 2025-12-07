@@ -87,3 +87,82 @@ impl Param<DownloadConfig> for Config {
         self.download.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_single_aria2_config() {
+        let toml = r#"
+[aria2]
+rpc_url = "wss://example.org/jsonrpc"
+token = "secret"
+
+[telegram]
+token = "bot_token"
+admins = [123, 456]
+
+[download]
+magnet_dirs = []
+torrent_dirs = []
+link_dirs = []
+default_dir = "/data"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(matches!(config.aria2, crate::utils::SingleMultiMap::Single(_)));
+        assert_eq!(config.telegram.admins, vec![123, 456]);
+        assert_eq!(config.download.default_dir, "/data");
+    }
+
+    #[test]
+    fn test_parse_multi_aria2_config() {
+        let toml = r#"
+[aria2.server1]
+rpc_url = "wss://server1.org/jsonrpc"
+token = "secret1"
+
+[aria2.server2]
+rpc_url = "wss://server2.org/jsonrpc"
+token = "secret2"
+
+[telegram]
+token = "bot_token"
+admins = [123]
+
+[download]
+magnet_dirs = []
+torrent_dirs = []
+link_dirs = []
+default_dir = "/data"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(matches!(config.aria2, crate::utils::SingleMultiMap::Multi(_)));
+    }
+
+    #[test]
+    fn test_parse_dir_config() {
+        let toml = r#"
+[aria2]
+rpc_url = "wss://example.org/jsonrpc"
+token = "secret"
+
+[telegram]
+token = "bot_token"
+admins = []
+
+[download]
+magnet_dirs = [
+    { name = "Movies", path = "/data/movies" },
+    { name = "Music", path = "/data/music" },
+]
+torrent_dirs = []
+link_dirs = []
+default_dir = "/data"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.download.magnet_dirs.len(), 2);
+        assert_eq!(config.download.magnet_dirs[0].name, "Movies");
+        assert_eq!(config.download.magnet_dirs[0].path, "/data/movies");
+    }
+}

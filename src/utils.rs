@@ -250,3 +250,146 @@ impl<T: teloxide::payloads::SendMessageSetters> SendMessageSettersExt for T {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod expired_deque {
+        use super::*;
+
+        #[test]
+        fn test_push_and_iter() {
+            let mut deque = ExpiredDeque::new(Duration::from_secs(10));
+            deque.push_back(1);
+            deque.push_back(2);
+            deque.push_back(3);
+
+            let items: Vec<_> = deque.iter().copied().collect();
+            assert_eq!(items, vec![1, 2, 3]);
+        }
+
+        #[test]
+        fn test_is_empty() {
+            let deque: ExpiredDeque<i32> = ExpiredDeque::new(Duration::from_secs(10));
+            assert!(deque.is_empty());
+
+            let mut deque = ExpiredDeque::new(Duration::from_secs(10));
+            deque.push_back(1);
+            assert!(!deque.is_empty());
+        }
+
+        #[test]
+        fn test_expired_items_not_returned() {
+            let mut deque = ExpiredDeque::new(Duration::from_millis(1));
+            deque.push_back(1);
+            std::thread::sleep(Duration::from_millis(10));
+
+            assert!(deque.is_empty());
+            assert_eq!(deque.iter().count(), 0);
+        }
+
+        #[test]
+        fn test_pop_front() {
+            let mut deque = ExpiredDeque::new(Duration::from_secs(10));
+            deque.push_back(1);
+            deque.push_back(2);
+
+            assert_eq!(deque.pop_front(), Some(1));
+            assert_eq!(deque.pop_front(), Some(2));
+            assert_eq!(deque.pop_front(), None);
+        }
+
+        #[test]
+        fn test_clean() {
+            let mut deque = ExpiredDeque::new(Duration::from_millis(1));
+            deque.push_back(1);
+            std::thread::sleep(Duration::from_millis(10));
+            deque.push_back(2);
+
+            deque.clean();
+            assert_eq!(deque.inner.len(), 1);
+        }
+    }
+
+    mod single_multi_map {
+        use super::*;
+
+        #[test]
+        fn test_try_from_empty_map() {
+            let map: HashMap<String, i32> = HashMap::new();
+            assert!(SingleMultiMap::try_from(map).is_err());
+        }
+
+        #[test]
+        fn test_try_from_single_item() {
+            let mut map = HashMap::new();
+            map.insert("key".to_string(), 42);
+
+            let smm = SingleMultiMap::try_from(map).unwrap();
+            assert!(matches!(smm, SingleMultiMap::Single(42)));
+        }
+
+        #[test]
+        fn test_try_from_multiple_items() {
+            let mut map = HashMap::new();
+            map.insert("a".to_string(), 1);
+            map.insert("b".to_string(), 2);
+
+            let smm = SingleMultiMap::try_from(map).unwrap();
+            assert!(matches!(smm, SingleMultiMap::Multi(_)));
+        }
+
+        #[test]
+        fn test_get_single() {
+            let smm = SingleMultiMap::Single(42);
+            assert_eq!(smm.get("any_key"), Some(&42));
+        }
+
+        #[test]
+        fn test_get_multi() {
+            let mut map = BTreeMap::new();
+            map.insert("a".to_string(), 1);
+            map.insert("b".to_string(), 2);
+            let smm = SingleMultiMap::Multi(map);
+
+            assert_eq!(smm.get("a"), Some(&1));
+            assert_eq!(smm.get("b"), Some(&2));
+            assert_eq!(smm.get("c"), None);
+        }
+
+        #[test]
+        fn test_iter_single() {
+            let smm = SingleMultiMap::Single(42);
+            let items: Vec<_> = smm.iter().collect();
+            assert_eq!(items, vec![(DEFAULT_SMM_NAME, &42)]);
+        }
+
+        #[test]
+        fn test_iter_multi() {
+            let mut map = BTreeMap::new();
+            map.insert("a".to_string(), 1);
+            map.insert("b".to_string(), 2);
+            let smm = SingleMultiMap::Multi(map);
+
+            let items: Vec<_> = smm.iter().collect();
+            assert_eq!(items, vec![("a", &1), ("b", &2)]);
+        }
+
+        #[test]
+        fn test_into_iter() {
+            let smm = SingleMultiMap::Single(42);
+            let items: Vec<_> = smm.into_iter().collect();
+            assert_eq!(items, vec![(DEFAULT_SMM_NAME.to_string(), 42)]);
+        }
+
+        #[test]
+        fn test_unwrap_single_ref() {
+            let smm = SingleMultiMap::Single(42);
+            assert_eq!(smm.unwrap_single_ref(), Some(&42));
+
+            let smm = SingleMultiMap::Multi(BTreeMap::new());
+            assert_eq!(smm.unwrap_single_ref(), None::<&()>);
+        }
+    }
+}

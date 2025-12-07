@@ -435,3 +435,96 @@ pub mod msg {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_size_formatter_bytes() {
+        assert_eq!(format!("{}", SizeFormatter(0)), "0.00 B");
+        assert_eq!(format!("{}", SizeFormatter(512)), "512.00 B");
+        assert_eq!(format!("{}", SizeFormatter(1023)), "1023.00 B");
+    }
+
+    #[test]
+    fn test_size_formatter_kib() {
+        assert_eq!(format!("{}", SizeFormatter(1025)), "1.00 KiB");
+        assert_eq!(format!("{}", SizeFormatter(1536)), "1.50 KiB");
+        assert_eq!(format!("{}", SizeFormatter(2048)), "2.00 KiB");
+    }
+
+    #[test]
+    fn test_size_formatter_mib() {
+        assert_eq!(format!("{}", SizeFormatter(1024 * 1025)), "1.00 MiB");
+        assert_eq!(format!("{}", SizeFormatter(1024 * 1024 * 5)), "5.00 MiB");
+    }
+
+    #[test]
+    fn test_size_formatter_gib() {
+        assert_eq!(format!("{}", SizeFormatter(1024 * 1024 * 1025)), "1.00 GiB");
+    }
+
+    fn make_status(completed: Option<u64>, total: Option<u64>) -> Status {
+        Status {
+            gid: None,
+            status: None,
+            total_length: total,
+            completed_length: completed,
+            upload_length: None,
+            bitfield: None,
+            download_speed: None,
+            upload_speed: None,
+            info_hash: None,
+            num_seeders: None,
+            seeder: None,
+            connections: None,
+            error_code: None,
+            error_message: None,
+            followed_by: None,
+            following: None,
+            belongs_to: None,
+            dir: None,
+            files: None,
+            bittorrent: None,
+            num_pieces: None,
+            piece_length: None,
+        }
+    }
+
+    #[test]
+    fn test_progress_zero_total() {
+        let status = make_status(Some(100), Some(0));
+        assert_eq!(status.progress(), 0.0);
+    }
+
+    #[test]
+    fn test_progress_none_total() {
+        let status = make_status(Some(100), None);
+        assert_eq!(status.progress(), 0.0);
+    }
+
+    #[test]
+    fn test_progress_normal() {
+        let status = make_status(Some(500), Some(1000));
+        assert_eq!(status.progress(), 0.5);
+    }
+
+    #[test]
+    fn test_progress_complete() {
+        let status = make_status(Some(1000), Some(1000));
+        assert_eq!(status.progress(), 1.0);
+    }
+
+    #[test]
+    fn test_progress_size() {
+        let status = make_status(Some(500), Some(1000));
+        assert_eq!(status.progress_size(), (500, 1000));
+    }
+
+    #[test]
+    fn test_progress_size_none() {
+        let status = make_status(None, None);
+        assert_eq!(status.progress_size(), (0, 0));
+    }
+}
