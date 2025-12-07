@@ -28,7 +28,13 @@ where
         match f().await {
             Ok(result) => return Ok(result),
             Err(e) => {
-                tracing::warn!("{} attempt {}/{} failed: {}", op_name, attempt + 1, MAX_RETRIES, e);
+                tracing::warn!(
+                    "{} attempt {}/{} failed: {}",
+                    op_name,
+                    attempt + 1,
+                    MAX_RETRIES,
+                    e
+                );
                 last_err = Some(e);
                 if attempt + 1 < MAX_RETRIES {
                     tokio::time::sleep(RETRY_DELAY).await;
@@ -125,7 +131,12 @@ impl Aria2Client {
             };
             match retry_call("add_uris", || self.cli.call_instantly(&call)).await {
                 Ok(gid) => gids.push(gid.0),
-                Err(e) => return AddUrisResult { gids, error: Some(e) },
+                Err(e) => {
+                    return AddUrisResult {
+                        gids,
+                        error: Some(e),
+                    }
+                }
             }
         }
         AddUrisResult { gids, error: None }

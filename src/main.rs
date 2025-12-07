@@ -27,9 +27,8 @@ static MAGNET_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
         .expect("invalid magnet regex")
 });
 
-static HTTP_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"((?:https|http)://[^\s]*)").expect("invalid http regex")
-});
+static HTTP_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"((?:https|http)://[^\s]*)").expect("invalid http regex"));
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,

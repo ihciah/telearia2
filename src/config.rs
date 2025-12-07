@@ -110,7 +110,10 @@ link_dirs = []
 default_dir = "/data"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(matches!(config.aria2, crate::utils::SingleMultiMap::Single(_)));
+        assert!(matches!(
+            config.aria2,
+            crate::utils::SingleMultiMap::Single(_)
+        ));
         assert_eq!(config.telegram.admins, vec![123, 456]);
         assert_eq!(config.download.default_dir, "/data");
     }
@@ -137,7 +140,10 @@ link_dirs = []
 default_dir = "/data"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(matches!(config.aria2, crate::utils::SingleMultiMap::Multi(_)));
+        assert!(matches!(
+            config.aria2,
+            crate::utils::SingleMultiMap::Multi(_)
+        ));
     }
 
     #[test]
