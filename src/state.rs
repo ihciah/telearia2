@@ -386,6 +386,7 @@ impl ServerState {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub struct State {
     // user id -> {server name -> ServerState{Aria2Client, TasksCache, DownloadConfig}}
     pub server_group: HashMap<i64, SingleMultiMap<Arc<ServerState>>>,
