@@ -156,6 +156,7 @@ impl Aria2Client {
 #[cfg(test)]
 mod tests {
     #[tokio::test]
+    #[ignore] // requires real aria2 server
     async fn it_works() {
         use crate::aria2::Aria2Client;
         use crate::config::Aria2Config;
