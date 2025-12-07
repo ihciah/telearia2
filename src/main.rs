@@ -88,12 +88,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .branch(Update::filter_callback_query().endpoint(callback_handler));
 
     tracing::info!("Bot created and running");
-    Dispatcher::builder(bot, handler)
+    let mut dispatcher = Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![state])
         .enable_ctrlc_handler()
-        .build()
-        .dispatch()
-        .await;
+        .build();
+
+    #[cfg(unix)]
+    {
+        let shutdown_token = dispatcher.shutdown_token();
+        tokio::spawn(async move {
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("failed to register SIGTERM handler");
+            sigterm.recv().await;
+            tracing::info!("Received SIGTERM, shutting down...");
+            shutdown_token.shutdown().ok();
+        });
+    }
+
+    dispatcher.dispatch().await;
     Ok(())
 }
 
