@@ -7,15 +7,15 @@ license = "MIT/Apache-2.0"
 name = "telearia2"
 readme = "README.md"
 repository = "https://github.com/ihciah/telearia2"
-version = "0.1.1"
+version = "0.1.9"
 
 [dependencies]
 anyhow = "1"
 bytes = "1"
-hashlink = "0.10"
+hashlink = "0.11"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-toml = "0.8"
+toml = "0.9"
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["fast-rng", "v4"] }
 regex = { version = "1", features = ["std"] }
@@ -33,8 +33,8 @@ smallvec = { version = "1", features = ["serde"] }
 small-map = { version = "0.1", features = ["fxhash", "serde"] }
 smol_str = { version = "0.3", features = ["serde"] }
 
-teloxide = { version = "0.15", features = ["macros"] }
-dptree = "0.3.0"
+teloxide = { version = "0.17", features = ["macros"] }
+dptree = "0.5"
 reqwest = { version = "0.12", features = ["native-tls-vendored"] }
 aria2-rs = { version = "0.3.3", features = [
     "tokio-tungstenite-native-tls-vendored",

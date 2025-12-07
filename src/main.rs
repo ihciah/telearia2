@@ -271,7 +271,7 @@ async fn handle_message(
         state
             .file_cache
             .lock()
-            .insert(uuid.into(), document.file.id.clone());
+            .insert(uuid.into(), document.file.id.to_string());
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
@@ -428,7 +428,7 @@ async fn get_telegram_file(
     file_id: &str,
     http_client: &reqwest::Client,
 ) -> anyhow::Result<Bytes> {
-    let file = bot.get_file(file_id).await?;
+    let file = bot.get_file(file_id.to_owned().into()).await?;
     let url = bot
         .api_url()
         .join(&format!("file/bot{}/{}", bot.token(), file.path))
