@@ -228,7 +228,7 @@ async fn handle_message(
     }
 
     if !magnets.is_empty() {
-        let uuid = uuid::Uuid::new_v4().to_string();
+        let uuid = uuid::Uuid::new_v4().simple().to_string();
         let text: String = MsgDownloadMagnetConfirm { magnets: &magnets }.into();
         let keyboard = make_download_confirm_keyboard(
             &server_selected.download_config.magnet_dirs,
@@ -251,7 +251,7 @@ async fn handle_message(
     http_links.sort_unstable();
     http_links.dedup();
     if !http_links.is_empty() {
-        let uuid = uuid::Uuid::new_v4().to_string();
+        let uuid = uuid::Uuid::new_v4().simple().to_string();
         let text: String = MsgDownloadLinkConfirm { links: &http_links }.into();
         let keyboard = make_download_confirm_keyboard(
             &server_selected.download_config.link_dirs,
@@ -273,7 +273,7 @@ async fn handle_message(
                 .await?;
             return Ok(ControlFlow::Break(()));
         }
-        let uuid = uuid::Uuid::new_v4().to_string();
+        let uuid = uuid::Uuid::new_v4().simple().to_string();
         let text = MsgDownloadTorrentConfirm { document };
         let keyboard = make_download_confirm_keyboard(
             &server_selected.download_config.torrent_dirs,
