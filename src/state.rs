@@ -284,26 +284,29 @@ impl TasksCache {
         }
     }
 
-    pub async fn refresh(this: &Arc<RwLock<Self>>, selected_client: &Aria2Client) {
+    pub async fn refresh(
+        this: &Arc<RwLock<Self>>,
+        selected_client: &Aria2Client,
+    ) -> anyhow::Result<()> {
         if !this.read().expired() {
-            return;
+            return Ok(());
         }
-        if let Ok(Ok(tasks)) =
-            tokio::time::timeout(REFRESH_TIMEOUT, selected_client.get_tasks()).await
-        {
-            let mut tasks_cache = this.write();
-            tasks_cache.tasks = tasks
-                .into_iter()
-                .filter_map(|t| {
-                    if let Some(gid) = &t.gid {
-                        Some((gid.clone(), Arc::new(t)))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            tasks_cache.last_refresh = std::time::Instant::now();
-        }
+        let tasks = tokio::time::timeout(REFRESH_TIMEOUT, selected_client.get_tasks())
+            .await
+            .map_err(|_| anyhow::anyhow!("Refresh timeout"))??;
+        let mut tasks_cache = this.write();
+        tasks_cache.tasks = tasks
+            .into_iter()
+            .filter_map(|t| {
+                if let Some(gid) = &t.gid {
+                    Some((gid.clone(), Arc::new(t)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        tasks_cache.last_refresh = std::time::Instant::now();
+        Ok(())
     }
 }
 

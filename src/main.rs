@@ -10,8 +10,9 @@ use bytes::Bytes;
 use clap::Parser;
 use config::{Config, MAX_TORRENT_SIZE};
 use format::{
-    make_download_confirm_keyboard, make_retry_keyboard, make_single_task_keyboard,
-    make_switch_server_keyboard, make_tasks_keyboard,
+    make_download_confirm_keyboard, make_refresh_list_keyboard, make_refresh_task_keyboard,
+    make_retry_keyboard, make_single_task_keyboard, make_switch_server_keyboard,
+    make_tasks_keyboard,
     msg::{
         MsgCatchError, MsgDownloadLinkConfirm, MsgDownloadMagnetConfirm, MsgDownloadTorrentConfirm,
         MsgStart, MsgSwitchPrompt, MsgSwitchResult, MsgTaskActionResult, MsgTaskList,
@@ -29,6 +30,9 @@ static MAGNET_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
 
 static HTTP_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"((?:https|http)://[^\s]*)").expect("invalid http regex"));
+
+const ARIA2_OP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 use teloxide::{
     payloads::SendMessageSetters,
     prelude::*,
@@ -156,7 +160,14 @@ async fn message_handler(
         // Auth checked for Task and Purge command.
         match cmd {
             Command::Task => {
-                TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
+                if let Err(e) =
+                    TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await
+                {
+                    bot.send_message(msg.chat.id, format!("Failed to fetch tasks: {e}"))
+                        .reply_parameters(ReplyParameters::new(msg.id))
+                        .await?;
+                    return Ok(());
+                }
                 let tasks = server_selected.tasks_cache.read().fmt_tasks();
                 let keyboard = make_tasks_keyboard(tasks);
                 let reply = bot
@@ -389,10 +400,25 @@ async fn callback_handler(
                     .await?;
                 return Ok(());
             };
-            let AddUrisResult { gids, error } = server_selected
-                .client
-                .add_uris(uris.as_slice(), Some(dir.clone()))
-                .await;
+            let add_result = tokio::time::timeout(
+                ARIA2_OP_TIMEOUT,
+                server_selected
+                    .client
+                    .add_uris(uris.as_slice(), Some(dir.clone())),
+            )
+            .await;
+            let AddUrisResult { gids, error } = match add_result {
+                Ok(result) => result,
+                Err(_) => {
+                    let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
+                    let keyboard = make_retry_keyboard(format!("uri|{retry_uuid}"));
+                    state.uri_cache.lock().insert(retry_uuid, (dir, uris));
+                    bot.edit_message_text(chat.id, id, "Add uris task timeout")
+                        .reply_markup(keyboard)
+                        .await?;
+                    return Ok(());
+                }
+            };
             let mut text = if gids.is_empty() {
                 String::new()
             } else {
@@ -429,9 +455,14 @@ async fn callback_handler(
                     .await?;
                 return Ok(());
             };
-            let file = match get_telegram_file(&bot, file_id.as_str(), &state.http_client).await {
-                Ok(file) => file,
-                Err(e) => {
+            let file = match tokio::time::timeout(
+                ARIA2_OP_TIMEOUT,
+                get_telegram_file(&bot, file_id.as_str(), &state.http_client),
+            )
+            .await
+            {
+                Ok(Ok(file)) => file,
+                Ok(Err(e)) => {
                     // Store for retry
                     let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
                     let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
@@ -444,15 +475,31 @@ async fn callback_handler(
                         .await?;
                     return Ok(());
                 }
+                Err(_) => {
+                    // Timeout - store for retry
+                    let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
+                    let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
+                    state
+                        .file_cache
+                        .lock()
+                        .insert(retry_uuid, (dir, file_id));
+                    bot.edit_message_text(chat.id, id, "Download torrent file timeout")
+                        .reply_markup(keyboard)
+                        .await?;
+                    return Ok(());
+                }
             };
 
-            let res = server_selected
-                .client
-                .add_torrent(&file, Some(dir.clone()))
-                .await;
+            let res = tokio::time::timeout(
+                ARIA2_OP_TIMEOUT,
+                server_selected
+                    .client
+                    .add_torrent(&file, Some(dir.clone())),
+            )
+            .await;
             let gid = match res {
-                Ok(gid) => gid,
-                Err(e) => {
+                Ok(Ok(gid)) => gid,
+                Ok(Err(e)) => {
                     // Store for retry
                     let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
                     let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
@@ -465,13 +512,33 @@ async fn callback_handler(
                         .await?;
                     return Ok(());
                 }
+                Err(_) => {
+                    // Timeout - store for retry
+                    let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
+                    let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
+                    state
+                        .file_cache
+                        .lock()
+                        .insert(retry_uuid, (dir, file_id));
+                    bot.edit_message_text(chat.id, id, "Add torrent task timeout")
+                        .reply_markup(keyboard)
+                        .await?;
+                    return Ok(());
+                }
             };
 
             let text = format!("Add download torrent task to {dir} successfully:\nGID: {gid}\n\nUse /task to list all tasks.");
             bot.edit_message_text(chat.id, id, text).await?;
         }
         UserData::RefreshList => {
-            TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
+            if let Err(e) =
+                TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await
+            {
+                bot.edit_message_text(chat.id, id, format!("Failed to fetch tasks: {e}"))
+                    .reply_markup(make_refresh_list_keyboard())
+                    .await?;
+                return Ok(());
+            }
             let tasks = server_selected.tasks_cache.read().fmt_tasks();
             let keyboard = make_tasks_keyboard(tasks);
             bot.edit_message_text(chat.id, id, MsgTaskList)
@@ -483,7 +550,14 @@ async fn callback_handler(
                 .add_list_subscriber(chat.id, id);
         }
         UserData::RefreshTask(gid) => {
-            TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
+            if let Err(e) =
+                TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await
+            {
+                bot.edit_message_text(chat.id, id, format!("Failed to fetch tasks: {e}"))
+                    .reply_markup(make_refresh_task_keyboard(&gid))
+                    .await?;
+                return Ok(());
+            }
             let Some((task_desc, task_status)) =
                 server_selected.tasks_cache.read().fmt_task(&gid).map(
                     |(task_desc, task_status)| {
