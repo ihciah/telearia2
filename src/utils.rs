@@ -81,17 +81,29 @@ pub enum SingleMultiMap<T> {
     Multi(BTreeMap<String, T>),
 }
 
-// Note: if given hashmap is empty, it will panic
-impl<T> From<HashMap<String, T>> for SingleMultiMap<T> {
-    fn from(map: HashMap<String, T>) -> Self {
+#[derive(Debug)]
+pub struct EmptyMapError;
+
+impl std::fmt::Display for EmptyMapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cannot create SingleMultiMap from empty map")
+    }
+}
+
+impl std::error::Error for EmptyMapError {}
+
+impl<T> TryFrom<HashMap<String, T>> for SingleMultiMap<T> {
+    type Error = EmptyMapError;
+
+    fn try_from(map: HashMap<String, T>) -> Result<Self, Self::Error> {
         if map.is_empty() {
-            panic!("unexpected empty list");
+            return Err(EmptyMapError);
         }
         if map.len() == 1 {
             let (_, config) = map.into_iter().next().unwrap();
-            return Self::Single(config);
+            return Ok(Self::Single(config));
         }
-        Self::Multi(map.into_iter().collect())
+        Ok(Self::Multi(map.into_iter().collect()))
     }
 }
 

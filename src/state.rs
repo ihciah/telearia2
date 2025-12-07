@@ -27,6 +27,62 @@ const REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
 const CACHE_EXPIRE: std::time::Duration = std::time::Duration::from_secs(3);
 const URI_LRU_SIZE: usize = 1024;
 
+/// A wrapper around `HashMap<SmolStr, Arc<Status>>` that implements `PartialEq`
+/// by comparing only the fields relevant for UI display updates.
+///
+/// This avoids expensive deep equality checks on the full `Status` struct,
+/// and only compares fields that affect what users see:
+/// - status: task state (active/paused/complete/etc)
+/// - completed_length/total_length: progress
+/// - download_speed/upload_speed: transfer speeds
+/// - connections/num_seeders: peer info
+#[derive(Clone, Default)]
+pub struct TasksMap(HashMap<SmolStr, Arc<Status>>);
+
+impl TasksMap {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    pub fn get(&self, gid: &str) -> Option<&Arc<Status>> {
+        self.0.get(gid)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Arc<Status>> {
+        self.0.values()
+    }
+}
+
+impl FromIterator<(SmolStr, Arc<Status>)> for TasksMap {
+    fn from_iter<I: IntoIterator<Item = (SmolStr, Arc<Status>)>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
+    }
+}
+
+impl PartialEq for TasksMap {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        for (gid, old_task) in &self.0 {
+            let Some(new_task) = other.0.get(gid) else {
+                return false;
+            };
+            if old_task.status != new_task.status
+                || old_task.completed_length != new_task.completed_length
+                || old_task.total_length != new_task.total_length
+                || old_task.download_speed != new_task.download_speed
+                || old_task.upload_speed != new_task.upload_speed
+                || old_task.connections != new_task.connections
+                || old_task.num_seeders != new_task.num_seeders
+            {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Subscribers {
     list_subscribers: ExpiredDeque<Subscriber>,
@@ -50,7 +106,7 @@ pub struct Subscriber {
 
 pub struct TasksCache {
     // GID -> Status
-    tasks: HashMap<SmolStr, Arc<aria2_rs::status::Status>>,
+    tasks: TasksMap,
     // Last refresh time
     last_refresh: std::time::Instant,
     // subscribers
@@ -62,7 +118,7 @@ pub struct TasksCache {
 impl TasksCache {
     pub fn new(expire: std::time::Duration, bot: Bot) -> Self {
         Self {
-            tasks: HashMap::new(),
+            tasks: TasksMap::new(),
             last_refresh: std::time::Instant::now(),
             subscribers: Subscribers::new(expire),
             bot,
@@ -344,7 +400,7 @@ impl State {
 
         let server_group: HashMap<i64, SingleMultiMap<Arc<ServerState>>> = server_group_builder
             .into_iter()
-            .map(|(k, v)| (k, SingleMultiMap::from(v)))
+            .filter_map(|(k, v)| SingleMultiMap::try_from(v).ok().map(|smm| (k, smm)))
             .collect();
 
         let mut server_selected = HashMap::new();
