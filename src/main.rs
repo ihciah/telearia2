@@ -10,12 +10,12 @@ use bytes::Bytes;
 use clap::Parser;
 use config::{Config, MAX_TORRENT_SIZE};
 use format::{
-    make_download_confirm_keyboard, make_single_task_keyboard, make_switch_server_keyboard,
-    make_tasks_keyboard,
+    make_download_confirm_keyboard, make_retry_keyboard, make_single_task_keyboard,
+    make_switch_server_keyboard, make_tasks_keyboard,
     msg::{
         MsgCatchError, MsgDownloadLinkConfirm, MsgDownloadMagnetConfirm, MsgDownloadTorrentConfirm,
-        MsgStart, MsgSwitchPrompt, MsgSwitchResult, MsgTask, MsgTaskActionResult, MsgTaskNotFound,
-        MsgUnauthorized,
+        MsgStart, MsgSwitchPrompt, MsgSwitchResult, MsgTaskActionResult, MsgTaskList,
+        MsgTaskNotFound, MsgUnauthorized,
     },
 };
 use smol_str::SmolStr;
@@ -159,14 +159,15 @@ async fn message_handler(
                 TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
                 let tasks = server_selected.tasks_cache.read().fmt_tasks();
                 let keyboard = make_tasks_keyboard(tasks);
-                let msg = bot
-                    .send_message(msg.chat.id, MsgTask)
+                let reply = bot
+                    .send_message(msg.chat.id, MsgTaskList)
                     .reply_markup(keyboard)
+                    .reply_parameters(ReplyParameters::new(msg.id))
                     .await?;
                 server_selected
                     .tasks_cache
                     .write()
-                    .add_list_subscriber(msg.chat.id, msg.id);
+                    .add_list_subscriber(reply.chat.id, reply.id);
             }
             Command::Purge => {
                 bot.send_message(
@@ -245,6 +246,7 @@ async fn handle_message(
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
+            .reply_parameters(ReplyParameters::new(msg.id))
             .await?;
         return Ok(ControlFlow::Break(()));
     }
@@ -274,6 +276,7 @@ async fn handle_message(
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
+            .reply_parameters(ReplyParameters::new(msg.id))
             .await?;
         return Ok(ControlFlow::Break(()));
     }
@@ -303,6 +306,7 @@ async fn handle_message(
 
         bot.send_message(msg.chat.id, text)
             .reply_markup(keyboard)
+            .reply_parameters(ReplyParameters::new(msg.id))
             .await?;
         return Ok(ControlFlow::Break(()));
     }
@@ -403,8 +407,21 @@ async fn callback_handler(
                 } else {
                     text = format!("Push add uris task failed: {e}");
                 }
+                // Store failed URIs for retry
+                let failed_uris: SmallVec<String> = uris.into_iter().skip(gids.len()).collect();
+                let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
+                let keyboard = make_retry_keyboard(format!("uri|{retry_uuid}"));
+                state
+                    .uri_cache
+                    .lock()
+                    .insert(retry_uuid, (dir, failed_uris));
+                bot.edit_message_text(chat.id, id, text)
+                    .reply_markup(keyboard)
+                    .await?;
+            } else {
+                text.push_str("\nUse /task to list all tasks.");
+                bot.edit_message_text(chat.id, id, text).await?;
             }
-            bot.edit_message_text(chat.id, id, text).await?;
         }
         UserData::AddTorrent(uuid) => {
             let Some((dir, file_id)) = state.file_cache.lock().remove(&uuid) else {
@@ -415,12 +432,16 @@ async fn callback_handler(
             let file = match get_telegram_file(&bot, file_id.as_str(), &state.http_client).await {
                 Ok(file) => file,
                 Err(e) => {
-                    bot.edit_message_text(
-                        chat.id,
-                        id,
-                        format!("Download torrent file failed: {e}"),
-                    )
-                    .await?;
+                    // Store for retry
+                    let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
+                    let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
+                    state
+                        .file_cache
+                        .lock()
+                        .insert(retry_uuid, (dir, file_id));
+                    bot.edit_message_text(chat.id, id, format!("Download torrent file failed: {e}"))
+                        .reply_markup(keyboard)
+                        .await?;
                     return Ok(());
                 }
             };
@@ -432,26 +453,30 @@ async fn callback_handler(
             let gid = match res {
                 Ok(gid) => gid,
                 Err(e) => {
-                    bot.edit_message_text(
-                        chat.id,
-                        id,
-                        format!("Push add torrent task failed: {e}"),
-                    )
-                    .await?;
+                    // Store for retry
+                    let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
+                    let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
+                    state
+                        .file_cache
+                        .lock()
+                        .insert(retry_uuid, (dir, file_id));
+                    bot.edit_message_text(chat.id, id, format!("Push add torrent task failed: {e}"))
+                        .reply_markup(keyboard)
+                        .await?;
                     return Ok(());
                 }
             };
 
-            let text = format!("Add download torrent task to {dir} successfully:\nGID: {gid}");
+            let text = format!("Add download torrent task to {dir} successfully:\nGID: {gid}\n\nUse /task to list all tasks.");
             bot.edit_message_text(chat.id, id, text).await?;
         }
         UserData::RefreshList => {
             TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
             let tasks = server_selected.tasks_cache.read().fmt_tasks();
             let keyboard = make_tasks_keyboard(tasks);
-            let mut rep = bot.edit_message_reply_markup(chat.id, id);
-            rep.reply_markup = Some(keyboard);
-            rep.await?;
+            bot.edit_message_text(chat.id, id, MsgTaskList)
+                .reply_markup(keyboard)
+                .await?;
             server_selected
                 .tasks_cache
                 .write()

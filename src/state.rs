@@ -3,7 +3,9 @@ use crate::{
     config::{Aria2ConfigGroup, DownloadConfig, Param, TelegramConfig},
     format::{
         make_refresh_list_keyboard, make_refresh_task_keyboard, make_single_task_keyboard,
-        make_tasks_keyboard, MessageFmtBrief, MessageFmtDetailed, TaskExt,
+        make_tasks_keyboard,
+        msg::MsgTaskListExpired,
+        MessageFmtBrief, MessageFmtDetailed, TaskExt,
     },
     utils::{ExpiredDeque, SingleMultiMap},
 };
@@ -192,14 +194,15 @@ impl TasksCache {
             || !self.subscribers.task_subscribers.is_empty()
     }
 
-    pub fn notify_subscribers(&mut self) {
+    pub fn handle_expired_subscribers(&mut self) {
         // Handle expired list subscribers - show refresh button
         let expired_list = self.subscribers.list_subscribers.drain_expired();
         for list_sub in expired_list {
             let bot = self.bot.clone();
             let keyboard = make_refresh_list_keyboard();
+            let text: String = MsgTaskListExpired.into();
             tokio::spawn(async move {
-                let mut rep = bot.edit_message_reply_markup(list_sub.chat_id, list_sub.message_id);
+                let mut rep = bot.edit_message_text(list_sub.chat_id, list_sub.message_id, text);
                 rep.reply_markup = Some(keyboard);
                 let _ = rep.await;
             });
@@ -223,6 +226,11 @@ impl TasksCache {
                 let _ = rep.await;
             });
         }
+    }
+
+    pub fn notify_subscribers(&mut self) {
+        // Handle expired subscribers first
+        self.handle_expired_subscribers();
 
         // Update active list subscribers
         if !self.subscribers.list_subscribers.is_empty() {
@@ -338,6 +346,9 @@ impl ServerState {
                             break;
                         }
                         _ = tokio::time::sleep(REFRESH_INTERVAL) => {
+                            // Handle expired subscribers first
+                            tasks_cache.write().handle_expired_subscribers();
+
                             // Skip refresh when no subscriber
                             if !tasks_cache.read().has_subscriber() {
                                 continue;

@@ -224,6 +224,13 @@ pub fn make_refresh_list_keyboard() -> InlineKeyboardMarkup {
     )]])
 }
 
+pub fn make_retry_keyboard(callback_data: String) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "🔄 Retry",
+        callback_data,
+    )]])
+}
+
 pub fn make_refresh_task_keyboard(gid: &str) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
         "🔄 Refresh",
@@ -303,11 +310,19 @@ pub mod msg {
         }
     }
 
-    pub struct MsgTask;
+    pub struct MsgTaskList;
 
-    impl From<MsgTask> for String {
-        fn from(_: MsgTask) -> Self {
-            "Tasks:\nThis page will be updated automatically within 3mins.\nUse /task to refresh again.".into()
+    impl From<MsgTaskList> for String {
+        fn from(_: MsgTaskList) -> Self {
+            "Task List".into()
+        }
+    }
+
+    pub struct MsgTaskListExpired;
+
+    impl From<MsgTaskListExpired> for String {
+        fn from(_: MsgTaskListExpired) -> Self {
+            "Task List\n\nAuto-refresh stopped. Press Refresh to continue.".into()
         }
     }
 
