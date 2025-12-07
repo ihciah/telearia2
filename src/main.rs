@@ -466,23 +466,21 @@ async fn callback_handler(
                     // Store for retry
                     let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
                     let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
-                    state
-                        .file_cache
-                        .lock()
-                        .insert(retry_uuid, (dir, file_id));
-                    bot.edit_message_text(chat.id, id, format!("Download torrent file failed: {e}"))
-                        .reply_markup(keyboard)
-                        .await?;
+                    state.file_cache.lock().insert(retry_uuid, (dir, file_id));
+                    bot.edit_message_text(
+                        chat.id,
+                        id,
+                        format!("Download torrent file failed: {e}"),
+                    )
+                    .reply_markup(keyboard)
+                    .await?;
                     return Ok(());
                 }
                 Err(_) => {
                     // Timeout - store for retry
                     let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
                     let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
-                    state
-                        .file_cache
-                        .lock()
-                        .insert(retry_uuid, (dir, file_id));
+                    state.file_cache.lock().insert(retry_uuid, (dir, file_id));
                     bot.edit_message_text(chat.id, id, "Download torrent file timeout")
                         .reply_markup(keyboard)
                         .await?;
@@ -492,9 +490,7 @@ async fn callback_handler(
 
             let res = tokio::time::timeout(
                 ARIA2_OP_TIMEOUT,
-                server_selected
-                    .client
-                    .add_torrent(&file, Some(dir.clone())),
+                server_selected.client.add_torrent(&file, Some(dir.clone())),
             )
             .await;
             let gid = match res {
@@ -503,23 +499,21 @@ async fn callback_handler(
                     // Store for retry
                     let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
                     let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
-                    state
-                        .file_cache
-                        .lock()
-                        .insert(retry_uuid, (dir, file_id));
-                    bot.edit_message_text(chat.id, id, format!("Push add torrent task failed: {e}"))
-                        .reply_markup(keyboard)
-                        .await?;
+                    state.file_cache.lock().insert(retry_uuid, (dir, file_id));
+                    bot.edit_message_text(
+                        chat.id,
+                        id,
+                        format!("Push add torrent task failed: {e}"),
+                    )
+                    .reply_markup(keyboard)
+                    .await?;
                     return Ok(());
                 }
                 Err(_) => {
                     // Timeout - store for retry
                     let retry_uuid = uuid::Uuid::new_v4().simple().to_string();
                     let keyboard = make_retry_keyboard(format!("t|{retry_uuid}"));
-                    state
-                        .file_cache
-                        .lock()
-                        .insert(retry_uuid, (dir, file_id));
+                    state.file_cache.lock().insert(retry_uuid, (dir, file_id));
                     bot.edit_message_text(chat.id, id, "Add torrent task timeout")
                         .reply_markup(keyboard)
                         .await?;

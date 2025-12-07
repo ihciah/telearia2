@@ -3,9 +3,7 @@ use crate::{
     config::{Aria2ConfigGroup, DownloadConfig, Param, TelegramConfig},
     format::{
         make_refresh_list_keyboard, make_refresh_task_keyboard, make_single_task_keyboard,
-        make_tasks_keyboard,
-        msg::MsgTaskListExpired,
-        MessageFmtBrief, MessageFmtDetailed, TaskExt,
+        make_tasks_keyboard, msg::MsgTaskListExpired, MessageFmtBrief, MessageFmtDetailed, TaskExt,
     },
     utils::{ExpiredDeque, SingleMultiMap},
 };
@@ -220,8 +218,7 @@ impl TasksCache {
             let bot = self.bot.clone();
             let keyboard = make_refresh_task_keyboard(&gid);
             tokio::spawn(async move {
-                let mut rep =
-                    bot.edit_message_reply_markup(task_sub.chat_id, task_sub.message_id);
+                let mut rep = bot.edit_message_reply_markup(task_sub.chat_id, task_sub.message_id);
                 rep.reply_markup = Some(keyboard);
                 let _ = rep.await;
             });

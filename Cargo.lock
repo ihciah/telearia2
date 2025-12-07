@@ -1931,7 +1931,7 @@ checksum = "20f34339676cdcab560c9a82300c4c2581f68b9369aedf0fae86f2ff9565ff3e"
 
 [[package]]
 name = "telearia2"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "aria2-rs",
