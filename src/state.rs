@@ -2,8 +2,8 @@ use crate::{
     aria2::Aria2Client,
     config::{Aria2ConfigGroup, DownloadConfig, Param, TelegramConfig},
     format::{
-        make_single_task_keyboard, make_tasks_keyboard, MessageFmtBrief, MessageFmtDetailed,
-        TaskExt,
+        make_refresh_list_keyboard, make_refresh_task_keyboard, make_single_task_keyboard,
+        make_tasks_keyboard, MessageFmtBrief, MessageFmtDetailed, TaskExt,
     },
     utils::{ExpiredDeque, SingleMultiMap},
 };
@@ -193,12 +193,38 @@ impl TasksCache {
     }
 
     pub fn notify_subscribers(&mut self) {
-        self.subscribers.list_subscribers.clean();
-        self.subscribers.task_subscribers.retain(|_, v| {
-            v.clean();
+        // Handle expired list subscribers - show refresh button
+        let expired_list = self.subscribers.list_subscribers.drain_expired();
+        for list_sub in expired_list {
+            let bot = self.bot.clone();
+            let keyboard = make_refresh_list_keyboard();
+            tokio::spawn(async move {
+                let mut rep = bot.edit_message_reply_markup(list_sub.chat_id, list_sub.message_id);
+                rep.reply_markup = Some(keyboard);
+                let _ = rep.await;
+            });
+        }
+
+        // Handle expired task subscribers - show refresh button
+        let mut expired_tasks: Vec<(SmolStr, Subscriber)> = Vec::new();
+        self.subscribers.task_subscribers.retain(|gid, v| {
+            for sub in v.drain_expired() {
+                expired_tasks.push((gid.clone(), sub));
+            }
             !v.is_empty()
         });
+        for (gid, task_sub) in expired_tasks {
+            let bot = self.bot.clone();
+            let keyboard = make_refresh_task_keyboard(&gid);
+            tokio::spawn(async move {
+                let mut rep =
+                    bot.edit_message_reply_markup(task_sub.chat_id, task_sub.message_id);
+                rep.reply_markup = Some(keyboard);
+                let _ = rep.await;
+            });
+        }
 
+        // Update active list subscribers
         if !self.subscribers.list_subscribers.is_empty() {
             let tasks = self.fmt_tasks();
             let keyboard = make_tasks_keyboard(tasks);
@@ -221,6 +247,7 @@ impl TasksCache {
             }
         }
 
+        // Update active task subscribers
         for (gid, subscribers) in self.subscribers.task_subscribers.iter() {
             if let Some((task_desc, task_status)) = self.fmt_task(gid) {
                 let keyboard = make_single_task_keyboard(

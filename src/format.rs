@@ -217,6 +217,20 @@ pub fn make_tasks_keyboard(tasks: Vec<(String, String)>) -> InlineKeyboardMarkup
     InlineKeyboardMarkup::new(keyboard)
 }
 
+pub fn make_refresh_list_keyboard() -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "🔄 Refresh",
+        "rlist",
+    )]])
+}
+
+pub fn make_refresh_task_keyboard(gid: &str) -> InlineKeyboardMarkup {
+    InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "🔄 Refresh",
+        format!("rtask|{gid}"),
+    )]])
+}
+
 pub fn make_switch_server_keyboard<'a>(
     servers: impl Iterator<Item = &'a str>,
 ) -> InlineKeyboardMarkup {

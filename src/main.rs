@@ -445,6 +445,40 @@ async fn callback_handler(
             let text = format!("Add download torrent task to {dir} successfully:\nGID: {gid}");
             bot.edit_message_text(chat.id, id, text).await?;
         }
+        UserData::RefreshList => {
+            TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
+            let tasks = server_selected.tasks_cache.read().fmt_tasks();
+            let keyboard = make_tasks_keyboard(tasks);
+            let mut rep = bot.edit_message_reply_markup(chat.id, id);
+            rep.reply_markup = Some(keyboard);
+            rep.await?;
+            server_selected
+                .tasks_cache
+                .write()
+                .add_list_subscriber(chat.id, id);
+        }
+        UserData::RefreshTask(gid) => {
+            TasksCache::refresh(&server_selected.tasks_cache, &server_selected.client).await;
+            let Some((task_desc, task_status)) =
+                server_selected.tasks_cache.read().fmt_task(&gid).map(
+                    |(task_desc, task_status)| {
+                        (task_desc, task_status.status.unwrap_or(TaskStatus::Removed))
+                    },
+                )
+            else {
+                bot.edit_message_text(chat.id, id, MsgTaskNotFound { gid: &gid })
+                    .await?;
+                return Ok(());
+            };
+            let keyboard = make_single_task_keyboard(&gid, task_status);
+            bot.edit_message_text(chat.id, id, task_desc)
+                .reply_markup(keyboard)
+                .await?;
+            server_selected
+                .tasks_cache
+                .write()
+                .add_task_subscriber(gid, chat.id, id);
+        }
         _ => (),
     }
 
@@ -514,6 +548,8 @@ enum UserData {
     AddUri(String),
     AddTorrent(String),
     SwitchServer(SmolStr),
+    RefreshList,
+    RefreshTask(SmolStr),
 }
 
 #[derive(Debug)]
@@ -530,18 +566,22 @@ impl FromStr for UserData {
     type Err = UserDataError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let Some((action, gid)) = s.split_once('|') else {
+        if s == "rlist" {
+            return Ok(UserData::RefreshList);
+        }
+        let Some((action, data)) = s.split_once('|') else {
             return Err(UserDataError);
         };
         match action {
-            "task" => Ok(UserData::Task(gid.into())),
-            "pause" => Ok(UserData::PauseTask(gid.into())),
-            "resume" => Ok(UserData::ResumeTask(gid.into())),
-            "remove" => Ok(UserData::RemoveTask(gid.into())),
-            "uri" => Ok(UserData::AddUri(gid.into())),
-            "t" => Ok(UserData::AddTorrent(gid.into())),
+            "task" => Ok(UserData::Task(data.into())),
+            "pause" => Ok(UserData::PauseTask(data.into())),
+            "resume" => Ok(UserData::ResumeTask(data.into())),
+            "remove" => Ok(UserData::RemoveTask(data.into())),
+            "uri" => Ok(UserData::AddUri(data.into())),
+            "t" => Ok(UserData::AddTorrent(data.into())),
+            "rtask" => Ok(UserData::RefreshTask(data.into())),
             "switch" => {
-                let mut parts = gid.split('|');
+                let mut parts = data.split('|');
                 let server = parts.next().ok_or(UserDataError)?;
                 Ok(UserData::SwitchServer(server.into()))
             }

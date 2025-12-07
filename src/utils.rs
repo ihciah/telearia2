@@ -45,6 +45,7 @@ impl<T> ExpiredDeque<T> {
         None
     }
 
+    #[allow(unused)]
     pub fn clean(&mut self) {
         let now = Instant::now();
         while let Some(item) = self.inner.front() {
@@ -54,6 +55,21 @@ impl<T> ExpiredDeque<T> {
                 break;
             }
         }
+    }
+
+    pub fn drain_expired(&mut self) -> Vec<T> {
+        let now = Instant::now();
+        let mut expired = Vec::new();
+        while let Some(item) = self.inner.front() {
+            if item.expire < now {
+                if let Some(item) = self.inner.pop_front() {
+                    expired.push(item.value);
+                }
+            } else {
+                break;
+            }
+        }
+        expired
     }
 
     pub fn is_empty(&self) -> bool {
