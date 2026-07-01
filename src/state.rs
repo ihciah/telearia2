@@ -6,7 +6,8 @@ use crate::{
     },
     format::{
         make_refresh_list_keyboard, make_refresh_task_keyboard, make_single_task_keyboard,
-        make_tasks_keyboard, msg::MsgTaskListExpired, MessageFmtBrief, MessageFmtDetailed, TaskExt,
+        make_tasks_keyboard, msg::{MsgTaskList, MsgTaskListExpired}, task_list_page_count,
+        MessageFmtBrief, MessageFmtDetailed, TaskExt, TASK_LIST_PAGE_SIZE,
     },
     utils::{ExpiredDeque, SingleMultiMap},
 };
@@ -227,7 +228,7 @@ impl TasksCache {
         let expired_list = self.subscribers.list_subscribers.drain_expired();
         for list_sub in expired_list {
             let bot = self.bot.clone();
-            let keyboard = make_refresh_list_keyboard();
+            let keyboard = make_refresh_list_keyboard(list_sub.page);
             let text: String = MsgTaskListExpired.into();
             tokio::spawn(async move {
                 let mut rep = bot.edit_message_text(list_sub.chat_id, list_sub.message_id, text);
@@ -262,13 +263,19 @@ impl TasksCache {
         // Update active list subscribers
         if !self.subscribers.list_subscribers.is_empty() {
             let tasks = self.fmt_tasks();
-            let keyboard = make_tasks_keyboard(tasks);
+            let total_pages = task_list_page_count(tasks.len(), TASK_LIST_PAGE_SIZE);
             for &list_sub in self.subscribers.list_subscribers.iter() {
                 let bot = self.bot.clone();
-                let keyboard = keyboard.clone();
+                let page = list_sub.page.min(total_pages.saturating_sub(1));
+                let keyboard = make_tasks_keyboard(tasks.clone(), page, TASK_LIST_PAGE_SIZE);
+                let text: String = MsgTaskList {
+                    page: page + 1,
+                    total_pages,
+                }
+                .into();
                 tokio::spawn(async move {
                     let mut rep =
-                        bot.edit_message_reply_markup(list_sub.chat_id, list_sub.message_id);
+                        bot.edit_message_text(list_sub.chat_id, list_sub.message_id, text);
                     rep.reply_markup = Some(keyboard);
                     if let Err(e) = rep.await {
                         if !matches!(

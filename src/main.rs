@@ -41,13 +41,15 @@ enum Command {
 #[derive(Debug)]
 pub enum UserData {
     Task(SmolStr),
+    TaskPage(usize),
+    TaskPageInfo,
     PauseTask(SmolStr),
     ResumeTask(SmolStr),
     RemoveTask(SmolStr),
     AddUri(String),
     AddTorrent(String),
     SwitchServer(SmolStr),
-    RefreshList,
+    RefreshList(usize),
     RefreshTask(SmolStr),
 }
 
@@ -67,18 +69,23 @@ impl FromStr for UserData {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "rlist" {
-            return Ok(UserData::RefreshList);
+            return Ok(UserData::RefreshList(0));
         }
         let Some((action, data)) = s.split_once('|') else {
             return Err(UserDataError);
         };
         match action {
             "task" => Ok(UserData::Task(data.into())),
+            "task_page" => Ok(UserData::TaskPage(data.parse().map_err(|_| UserDataError)?)),
+            "task_page_info" => Ok(UserData::TaskPageInfo),
             "pause" => Ok(UserData::PauseTask(data.into())),
             "resume" => Ok(UserData::ResumeTask(data.into())),
             "remove" => Ok(UserData::RemoveTask(data.into())),
             "uri" => Ok(UserData::AddUri(data.into())),
             "t" => Ok(UserData::AddTorrent(data.into())),
+            "rlist" => Ok(UserData::RefreshList(
+                data.parse().map_err(|_| UserDataError)?,
+            )),
             "rtask" => Ok(UserData::RefreshTask(data.into())),
             "switch" => {
                 let mut parts = data.split('|');

@@ -24,7 +24,7 @@ use crate::constants::{ARIA2_OP_TIMEOUT, MAX_TORRENT_SIZE};
 use crate::format::{
     make_download_confirm_keyboard, make_refresh_list_keyboard, make_refresh_task_keyboard,
     make_retry_keyboard, make_single_task_keyboard, make_switch_server_keyboard,
-    make_tasks_keyboard,
+    make_tasks_keyboard, task_list_page_count, TASK_LIST_PAGE_SIZE,
     msg::{
         MsgCatchError, MsgDownloadLinkConfirm, MsgDownloadMagnetConfirm, MsgDownloadTorrentConfirm,
         MsgStart, MsgSwitchPrompt, MsgSwitchResult, MsgTaskActionResult, MsgTaskList,
@@ -91,9 +91,16 @@ pub async fn message_handler(
                     return Ok(());
                 }
                 let tasks = server_selected.tasks_cache.read().fmt_tasks();
-                let keyboard = make_tasks_keyboard(tasks);
+                let total_pages = task_list_page_count(tasks.len(), TASK_LIST_PAGE_SIZE);
+                let keyboard = make_tasks_keyboard(tasks, 0, TASK_LIST_PAGE_SIZE);
                 let reply = bot
-                    .send_message(msg.chat.id, MsgTaskList)
+                    .send_message(
+                        msg.chat.id,
+                        MsgTaskList {
+                            page: 1,
+                            total_pages,
+                        },
+                    )
                     .reply_markup(keyboard)
                     .reply_parameters(ReplyParameters::new(msg.id))
                     .await?;
@@ -253,6 +260,7 @@ pub async fn callback_handler(
     q: CallbackQuery,
     state: Arc<State>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let qid = q.id.clone();
     let (Some(user_data), Some(MaybeInaccessibleMessage::Regular(q))) = (q.data, q.message) else {
         return Ok(());
     };
@@ -281,6 +289,12 @@ pub async fn callback_handler(
         UserData::Task(gid) => {
             handle_task_view(&bot, &server_selected, chat.id, id, &gid).await?;
         }
+        UserData::TaskPage(page) => {
+            handle_task_page(&bot, &server_selected, chat.id, id, qid, page).await?;
+        }
+        UserData::TaskPageInfo => {
+            bot.answer_callback_query(qid).await?;
+        }
         UserData::PauseTask(gid) => {
             let res = server_selected.client.pause(&gid).await;
             bot.edit_message_text(chat.id, id, MsgTaskActionResult::Pause(&gid, &res))
@@ -302,8 +316,8 @@ pub async fn callback_handler(
         UserData::AddTorrent(uuid) => {
             handle_add_torrent(&bot, &state, &server_selected, chat.id, id, uuid).await?;
         }
-        UserData::RefreshList => {
-            handle_refresh_list(&bot, &server_selected, chat.id, id).await?;
+        UserData::RefreshList(page) => {
+            handle_refresh_list(&bot, &server_selected, chat.id, id, page).await?;
         }
         UserData::RefreshTask(gid) => {
             handle_refresh_task(&bot, &server_selected, chat.id, id, &gid).await?;
@@ -537,22 +551,70 @@ async fn handle_refresh_list(
     server: &crate::state::ServerState,
     chat_id: ChatId,
     msg_id: MessageId,
+    page: usize,
 ) -> anyhow::Result<()> {
     if let Err(e) = TasksCache::refresh(&server.tasks_cache, &server.client).await {
         bot.edit_message_text(chat_id, msg_id, format!("Failed to fetch tasks: {e}"))
-            .reply_markup(make_refresh_list_keyboard())
+            .reply_markup(make_refresh_list_keyboard(page))
             .await?;
         return Ok(());
     }
     let tasks = server.tasks_cache.read().fmt_tasks();
-    let keyboard = make_tasks_keyboard(tasks);
-    bot.edit_message_text(chat_id, msg_id, MsgTaskList)
+    let total_pages = task_list_page_count(tasks.len(), TASK_LIST_PAGE_SIZE);
+    let page = page.min(total_pages.saturating_sub(1));
+    let keyboard = make_tasks_keyboard(tasks, page, TASK_LIST_PAGE_SIZE);
+    bot.edit_message_text(
+        chat_id,
+        msg_id,
+        MsgTaskList {
+            page: page + 1,
+            total_pages,
+        },
+    )
         .reply_markup(keyboard)
         .await?;
     server
         .tasks_cache
         .write()
-        .add_list_subscriber(chat_id, msg_id, 0);
+        .add_list_subscriber(chat_id, msg_id, page);
+    Ok(())
+}
+
+async fn handle_task_page(
+    bot: &Bot,
+    server: &crate::state::ServerState,
+    chat_id: ChatId,
+    msg_id: MessageId,
+    qid: teloxide::types::CallbackQueryId,
+    page: usize,
+) -> anyhow::Result<()> {
+    let current_page = server
+        .tasks_cache
+        .read()
+        .list_subscriber_page(chat_id, msg_id);
+    if current_page == Some(page) {
+        bot.answer_callback_query(qid).await?;
+        return Ok(());
+    }
+
+    server
+        .tasks_cache
+        .write()
+        .update_list_subscriber_page(chat_id, msg_id, page);
+
+    TasksCache::refresh(&server.tasks_cache, &server.client).await?;
+    let tasks = server.tasks_cache.read().fmt_tasks();
+    let total_pages = task_list_page_count(tasks.len(), TASK_LIST_PAGE_SIZE);
+    let page = page.min(total_pages.saturating_sub(1));
+    let keyboard = make_tasks_keyboard(tasks, page, TASK_LIST_PAGE_SIZE);
+    let text: String = MsgTaskList {
+        page: page + 1,
+        total_pages,
+    }
+    .into();
+    bot.edit_message_text(chat_id, msg_id, text)
+        .reply_markup(keyboard)
+        .await?;
     Ok(())
 }
 

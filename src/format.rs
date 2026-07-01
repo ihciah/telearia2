@@ -9,6 +9,8 @@ use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 use crate::config::DirConfig;
 use crate::constants::MAX_BRIEF_NAME_LEN;
 
+pub const TASK_LIST_PAGE_SIZE: usize = 10;
+
 pub trait MessageFmt {
     fn fmt_message<const DETAILED: bool>(&self, f: &mut Formatter<'_>) -> Result<(), Error>;
 }
@@ -210,18 +212,50 @@ impl std::fmt::Display for SizeFormatter {
     }
 }
 
-pub fn make_tasks_keyboard(tasks: Vec<(String, String)>) -> InlineKeyboardMarkup {
-    let keyboard: Vec<_> = tasks
-        .into_iter()
+pub fn task_list_page_count(total_tasks: usize, page_size: usize) -> usize {
+    total_tasks.max(1).div_ceil(page_size)
+}
+
+pub fn make_tasks_keyboard(
+    tasks: Vec<(String, String)>,
+    page: usize,
+    page_size: usize,
+) -> InlineKeyboardMarkup {
+    let total_pages = task_list_page_count(tasks.len(), page_size);
+    let page = page.min(total_pages.saturating_sub(1));
+    let start = page.saturating_mul(page_size);
+    let end = (start + page_size).min(tasks.len());
+
+    let mut keyboard: Vec<Vec<InlineKeyboardButton>> = tasks[start..end]
+        .iter()
+        .cloned()
         .map(|(desc, id)| vec![InlineKeyboardButton::callback(desc, format!("task|{id}"))])
         .collect();
+
+    if total_pages > 1 {
+        keyboard.push(vec![
+            InlineKeyboardButton::callback(
+                "⬅️",
+                format!("task_page|{}", page.saturating_sub(1)),
+            ),
+            InlineKeyboardButton::callback(
+                format!("{}/{}", page + 1, total_pages),
+                "task_page_info",
+            ),
+            InlineKeyboardButton::callback(
+                "➡️",
+                format!("task_page|{}", (page + 1).min(total_pages - 1)),
+            ),
+        ]);
+    }
+
     InlineKeyboardMarkup::new(keyboard)
 }
 
-pub fn make_refresh_list_keyboard() -> InlineKeyboardMarkup {
+pub fn make_refresh_list_keyboard(page: usize) -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
         "🔄 Refresh",
-        "rlist",
+        format!("rlist|{page}"),
     )]])
 }
 
@@ -311,11 +345,14 @@ pub mod msg {
         }
     }
 
-    pub struct MsgTaskList;
+    pub struct MsgTaskList {
+        pub page: usize,
+        pub total_pages: usize,
+    }
 
     impl From<MsgTaskList> for String {
-        fn from(_: MsgTaskList) -> Self {
-            "Task List".into()
+        fn from(msg: MsgTaskList) -> Self {
+            format!("Task List (page {}/{}):", msg.page, msg.total_pages)
         }
     }
 
