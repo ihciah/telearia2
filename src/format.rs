@@ -234,10 +234,7 @@ pub fn make_tasks_keyboard(
 
     if total_pages > 1 {
         keyboard.push(vec![
-            InlineKeyboardButton::callback(
-                "⬅️",
-                format!("task_page|{}", page.saturating_sub(1)),
-            ),
+            InlineKeyboardButton::callback("⬅️", format!("task_page|{}", page.saturating_sub(1))),
             InlineKeyboardButton::callback(
                 format!("{}/{}", page + 1, total_pages),
                 "task_page_info",

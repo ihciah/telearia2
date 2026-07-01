@@ -24,12 +24,13 @@ use crate::constants::{ARIA2_OP_TIMEOUT, MAX_TORRENT_SIZE};
 use crate::format::{
     make_download_confirm_keyboard, make_refresh_list_keyboard, make_refresh_task_keyboard,
     make_retry_keyboard, make_single_task_keyboard, make_switch_server_keyboard,
-    make_tasks_keyboard, task_list_page_count, TASK_LIST_PAGE_SIZE,
+    make_tasks_keyboard,
     msg::{
         MsgCatchError, MsgDownloadLinkConfirm, MsgDownloadMagnetConfirm, MsgDownloadTorrentConfirm,
         MsgStart, MsgSwitchPrompt, MsgSwitchResult, MsgTaskActionResult, MsgTaskList,
         MsgTaskNotFound, MsgUnauthorized,
     },
+    task_list_page_count, TASK_LIST_PAGE_SIZE,
 };
 use crate::state::{State, TasksCache};
 use crate::utils::SendMessageSettersExt;
@@ -148,7 +149,7 @@ async fn handle_message_content(
     // TODO: extract and pass more query parameters.
     let mut magnets: SmallVec<String> = MAGNET_RE
         .captures_iter(msg.text().unwrap_or(""))
-        .map(|cap| format!("magnet:?xt=urn:btih:{}", &cap[1].to_ascii_lowercase()))
+        .map(|cap| format!("magnet:?xt=urn:btih:{}", cap[1].to_ascii_lowercase()))
         .collect();
     magnets.sort_unstable();
     magnets.dedup();
@@ -571,8 +572,8 @@ async fn handle_refresh_list(
             total_pages,
         },
     )
-        .reply_markup(keyboard)
-        .await?;
+    .reply_markup(keyboard)
+    .await?;
     server
         .tasks_cache
         .write()

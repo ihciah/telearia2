@@ -6,8 +6,9 @@ use crate::{
     },
     format::{
         make_refresh_list_keyboard, make_refresh_task_keyboard, make_single_task_keyboard,
-        make_tasks_keyboard, msg::{MsgTaskList, MsgTaskListExpired}, task_list_page_count,
-        MessageFmtBrief, MessageFmtDetailed, TaskExt, TASK_LIST_PAGE_SIZE,
+        make_tasks_keyboard,
+        msg::{MsgTaskList, MsgTaskListExpired},
+        task_list_page_count, MessageFmtBrief, MessageFmtDetailed, TaskExt, TASK_LIST_PAGE_SIZE,
     },
     utils::{ExpiredDeque, SingleMultiMap},
 };

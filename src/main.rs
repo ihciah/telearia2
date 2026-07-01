@@ -111,11 +111,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config_file = Args::parse()
         .config
-        .or_else(|| {
-            std::env::var("CONFIG_PATH")
-                .ok()
-                .and_then(|s| if s.is_empty() { None } else { Some(s) })
-        })
+        .or_else(|| std::env::var("CONFIG_PATH").ok().filter(|s| !s.is_empty()))
         .unwrap_or_else(|| "config.toml".to_string());
     tracing::info!("Use config file: {config_file}");
     let config = Config::load_from(&config_file).expect("unable to load config");
