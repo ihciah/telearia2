@@ -100,7 +100,7 @@ pub async fn message_handler(
                 server_selected
                     .tasks_cache
                     .write()
-                    .add_list_subscriber(reply.chat.id, reply.id);
+                    .add_list_subscriber(reply.chat.id, reply.id, 0);
             }
             Command::Purge => {
                 bot.send_message(
@@ -552,7 +552,7 @@ async fn handle_refresh_list(
     server
         .tasks_cache
         .write()
-        .add_list_subscriber(chat_id, msg_id);
+        .add_list_subscriber(chat_id, msg_id, 0);
     Ok(())
 }
 

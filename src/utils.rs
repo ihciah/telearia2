@@ -87,6 +87,17 @@ impl<T> ExpiredDeque<T> {
             }
         })
     }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        let now = Instant::now();
+        self.inner.iter_mut().filter_map(move |item| {
+            if item.expire >= now {
+                Some(&mut item.value)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 pub const DEFAULT_SMM_NAME: &str = "__default__";

@@ -88,8 +88,8 @@ impl Aria2Client {
             })
         )?;
 
-        active.extend(waiting.into_iter());
-        active.extend(stopped.into_iter());
+        active.extend(waiting);
+        active.extend(stopped);
 
         Ok(active)
     }

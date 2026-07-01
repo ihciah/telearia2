@@ -82,7 +82,7 @@ impl PartialEq for TasksMap {
 
 #[derive(Debug, Clone)]
 pub struct Subscribers {
-    list_subscribers: ExpiredDeque<Subscriber>,
+    list_subscribers: ExpiredDeque<ListSubscriber>,
     task_subscribers: HashMap<SmolStr, ExpiredDeque<Subscriber>>,
 }
 
@@ -93,6 +93,13 @@ impl Subscribers {
             task_subscribers: HashMap::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ListSubscriber {
+    chat_id: ChatId,
+    message_id: MessageId,
+    page: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -165,11 +172,37 @@ impl TasksCache {
         self.last_refresh.elapsed() > CACHE_EXPIRE
     }
 
-    pub fn add_list_subscriber(&mut self, chat_id: ChatId, message_id: MessageId) {
-        self.subscribers.list_subscribers.push_back(Subscriber {
+    pub fn add_list_subscriber(&mut self, chat_id: ChatId, message_id: MessageId, page: usize) {
+        self.subscribers.list_subscribers.push_back(ListSubscriber {
             chat_id,
             message_id,
+            page,
         });
+    }
+
+    pub fn update_list_subscriber_page(
+        &mut self,
+        chat_id: ChatId,
+        message_id: MessageId,
+        page: usize,
+    ) {
+        self.subscribers.list_subscribers.clean();
+        if let Some(subscriber) = self
+            .subscribers
+            .list_subscribers
+            .iter_mut()
+            .find(|sub| sub.chat_id == chat_id && sub.message_id == message_id)
+        {
+            subscriber.page = page;
+        }
+    }
+
+    pub fn list_subscriber_page(&self, chat_id: ChatId, message_id: MessageId) -> Option<usize> {
+        self.subscribers
+            .list_subscribers
+            .iter()
+            .find(|sub| sub.chat_id == chat_id && sub.message_id == message_id)
+            .map(|sub| sub.page)
     }
 
     pub fn add_task_subscriber(&mut self, gid: SmolStr, chat_id: ChatId, message_id: MessageId) {
